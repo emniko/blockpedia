@@ -98,6 +98,38 @@ class WikiHtmlParserTest {
     }
 
     @Test
+    fun cssSpritesBecomeCroppedIcons() {
+        val p = parse("""<p><span class="sprite env-sprite" style="background-position:-32px -48px"></span> Work</p>""")
+            .single() as ParagraphBlock
+        val icon = p.text.icons.single().image
+        assertEquals("https://minecraft.wiki/w/Special:FilePath/EnvSprite.png", icon.url)
+        assertEquals(SpriteCrop(32, 48, 16, 16, 0), icon.crop)
+
+        val scaled = parse(
+            """<p><span class="sprite" style="background-image:url(/images/X.png);background-position:-64px -0px;background-size:512px auto;height:32px;width:32px"></span></p>"""
+        ).single() as ParagraphBlock
+        val s = scaled.text.icons.single().image
+        assertEquals("https://minecraft.wiki/images/X.png", s.url)
+        assertEquals(SpriteCrop(64, 0, 32, 32, 512), s.crop)
+    }
+
+    @Test
+    fun soundPlayersBecomeSoundBlocks() {
+        val blocks = parse(
+            """<table><tr><th>Sound</th><th>Caption</th></tr><tr><td>
+            <span class="sound"><span class="sound-title"></span><audio class="sound-audio" controls preload="none"><source src="/images/Villager_idle1.ogg?abc" type="audio/ogg"></audio></span>
+            <span class="sound"><span class="sound-title"></span><audio src="/images/Villager_idle2.ogg"></audio></span>
+            </td><td>Villager mumbles</td></tr></table>"""
+        )
+        val cell = (blocks.single() as TableBlock).rows[1].cells[0]
+        val sounds = cell.blocks.filterIsInstance<SoundBlock>()
+        assertEquals(
+            listOf("https://minecraft.wiki/images/Villager_idle1.ogg?abc", "https://minecraft.wiki/images/Villager_idle2.ogg"),
+            sounds.flatMap { it.urls },
+        )
+    }
+
+    @Test
     fun skipsNavboxesAndStyles() {
         val blocks = parse("""<style>.x{}</style><table class="navbox"><tr><td>nav</td></tr></table><p>Text</p>""")
         assertEquals("Text", (blocks.single() as ParagraphBlock).text.text)

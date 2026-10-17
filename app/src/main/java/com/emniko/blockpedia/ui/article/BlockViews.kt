@@ -23,6 +23,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,6 +88,7 @@ import com.emniko.blockpedia.parse.QuoteBlock
 import com.emniko.blockpedia.parse.RichText
 import com.emniko.blockpedia.parse.RuleBlock
 import com.emniko.blockpedia.parse.Slot
+import com.emniko.blockpedia.parse.SoundBlock
 import com.emniko.blockpedia.parse.TableBlock
 import com.emniko.blockpedia.parse.TableCell
 import com.emniko.blockpedia.parse.WikiImage
@@ -118,6 +127,7 @@ fun BlockView(block: ContentBlock, onLink: OnLink, nested: Boolean = false) {
         is TableBlock -> TableView(block, onLink, nested)
         is InfoboxBlock -> InfoboxView(block, onLink)
         is CraftingBlock -> CraftingView(block, onLink)
+        is SoundBlock -> SoundView(block, onLink)
         RuleBlock -> HorizontalDivider(Modifier.padding(vertical = 8.dp))
     }
 }
@@ -188,7 +198,7 @@ private fun iconContent(icons: List<IconSpan>): Map<String, InlineTextContent> {
             )
         ) {
             AsyncImage(
-                model = img.url,
+                model = rememberImageModel(img),
                 contentDescription = img.alt,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
@@ -313,7 +323,7 @@ fun WikiImageView(image: WikiImage, modifier: Modifier = Modifier, maxHeight: Dp
         modifier.fillMaxWidth().heightIn(max = maxHeight)
     }
     AsyncImage(
-        model = image.url,
+        model = rememberImageModel(image),
         contentDescription = image.alt,
         modifier = sized,
         contentScale = ContentScale.Fit,
@@ -350,7 +360,7 @@ private fun GalleryView(block: GalleryBlock, onLink: OnLink, nested: Boolean) {
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
-                    model = item.image.url,
+                    model = rememberImageModel(item.image),
                     contentDescription = item.image.alt,
                     modifier = Modifier.fillMaxSize().padding(6.dp),
                     contentScale = ContentScale.Fit,
@@ -536,7 +546,7 @@ private fun InfoboxView(block: InfoboxBlock, onLink: OnLink) {
                     block.images.forEach { image ->
                         val ratio = if (image.width > 0 && image.height > 0) image.width.toFloat() / image.height else 1f
                         AsyncImage(
-                            model = image.url,
+                            model = rememberImageModel(image),
                             contentDescription = image.alt,
                             modifier = Modifier
                                 .height(128.dp)
@@ -641,7 +651,7 @@ private fun SlotView(slot: Slot?, size: Dp, onLink: OnLink) {
         val title = slot?.title
         if (image != null) {
             AsyncImage(
-                model = image.url,
+                model = rememberImageModel(image),
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize().padding(4.dp),
                 contentScale = ContentScale.Fit,
@@ -666,3 +676,47 @@ private fun SlotView(slot: Slot?, size: Dp, onLink: OnLink) {
 
 @Composable
 fun VerticalGap(height: Dp) = Spacer(Modifier.height(height))
+
+// ------------------------------------------------------------------ sounds
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SoundView(block: SoundBlock, onLink: OnLink) {
+    val playing by SoundPlayer.playing.collectAsState()
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        block.title?.let { RichTextView(it, onLink) }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            block.urls.forEachIndexed { index, url ->
+                val isPlaying = playing == url
+                Surface(
+                    onClick = { SoundPlayer.toggle(context, url) },
+                    shape = RoundedCornerShape(50),
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = if (isPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (isPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Stop sound" else "Play sound ${index + 1}",
+                            modifier = Modifier.size(18.dp),
+                        )
+                        if (block.urls.size > 1) {
+                            Text(
+                                "${index + 1}",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

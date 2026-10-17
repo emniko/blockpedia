@@ -79,6 +79,8 @@ class WikiHtmlParser(private val baseUrl: String = BASE_URL) {
                 if (h != null) heading(h)?.let(flow::emit) else blockContainer(el, flow)
             }
             tag in HEADING_TAGS -> heading(el)?.let(flow::emit)
+            el.hasClass("sprite") -> spriteImage(el)?.let { flow.rb.appendIcon(it) }
+            el.hasClass("sound") || tag == "audio" -> parseSound(el, flow)
             isInfobox(el) -> flow.emit(parseInfobox(el))
             el.hasClass("mcui") -> parseCrafting(el)?.let(flow::emit)
             el.hasClass("animated") -> {
@@ -335,6 +337,82 @@ class WikiHtmlParser(private val baseUrl: String = BASE_URL) {
         return rows
     }
 
+    // ---------------------------------------------------------------- sounds
+
+    private fun parseSound(el: Element, flow: Flow) {
+        val urls = soundUrls(el)
+        if (urls.isEmpty()) {
+            flowChildren(el, flow)
+            return
+        }
+        val title = el.selectFirst(".sound-title")?.let { inline(it) }?.takeUnless { it.isBlank }
+        flow.emit(SoundBlock(title, urls))
+    }
+
+    private fun soundUrls(el: Element): List<String> {
+        val urls = LinkedHashSet<String>()
+        if (el.normalName() == "audio" && el.hasAttr("src")) urls += absolutize(el.attr("src"))
+        el.select("audio[src], source[src]").forEach { urls += absolutize(it.attr("src")) }
+        el.select("a[href]").forEach { a ->
+            val href = a.attr("href")
+            val path = href.substringBefore('?').substringBefore('#').lowercase()
+            if (AUDIO_EXTENSIONS.none { path.endsWith(it) }) return@forEach
+            urls += if (href.contains("/w/File:")) {
+                "$baseUrl/w/Special:FilePath/" + href.substringAfter("/w/File:").substringBefore('?')
+            } else {
+                absolutize(href)
+            }
+        }
+        return urls.toList()
+    }
+
+    // ---------------------------------------------------------------- sprites
+
+    /**
+     * The wiki's CSS sprites are empty spans: the sheet comes from site CSS (one sheet per
+     * `<name>-sprite` class) and the icon is picked with background-position.
+     */
+    private fun spriteImage(el: Element): WikiImage? {
+        val style = parseStyle(el.attr("style"))
+        val explicitUrl = (style["background-image"] ?: style["mask-image"])
+            ?.substringAfter("url(", "")?.substringBefore(')')?.trim('\'', '"', ' ')
+            ?.ifBlank { null }
+        val url = explicitUrl?.let(::absolutize) ?: run {
+            val sheetClass = el.classNames().firstOrNull { it.endsWith("-sprite") } ?: return null
+            val name = sheetClass.removeSuffix("-sprite").split('-')
+                .joinToString("") { part -> part.replaceFirstChar { it.uppercaseChar() } }
+            if (name.isEmpty()) return null
+            "$baseUrl/w/Special:FilePath/${name}Sprite.png"
+        }
+        val position = numbers(style["background-position"] ?: style["mask-position"])
+        val width = numbers(style["width"]).firstOrNull() ?: DEFAULT_SPRITE_SIZE
+        val height = numbers(style["height"]).firstOrNull() ?: DEFAULT_SPRITE_SIZE
+        val sheetWidth = numbers(style["background-size"] ?: style["mask-size"]).firstOrNull() ?: 0
+        return WikiImage(
+            url = url,
+            width = width,
+            height = height,
+            alt = el.attr("title").ifBlank { null },
+            crop = SpriteCrop(
+                left = position.getOrElse(0) { 0 },
+                top = position.getOrElse(1) { 0 },
+                width = width,
+                height = height,
+                sheetWidth = sheetWidth,
+            ),
+        )
+    }
+
+    private fun parseStyle(style: String): Map<String, String> =
+        style.split(';').mapNotNull { decl ->
+            val i = decl.indexOf(':')
+            if (i <= 0) null else decl.substring(0, i).trim().lowercase() to decl.substring(i + 1).trim()
+        }.toMap()
+
+    private fun numbers(value: String?): List<Int> =
+        if (value == null) emptyList()
+        else NUMBER.findAll(value).map { kotlin.math.abs(it.value.toDouble()).toInt() }.toList()
+
     // ---------------------------------------------------------------- images
 
     /** Collects images in document order, showing only the first frame of animated sets. */
@@ -428,6 +506,9 @@ class WikiHtmlParser(private val baseUrl: String = BASE_URL) {
         const val BASE_URL = "https://minecraft.wiki"
         private const val MIN_BLOCK_IMAGE = 64
         private const val MAX_INFOBOX_IMAGES = 8
+        private const val DEFAULT_SPRITE_SIZE = 16
+        private val NUMBER = Regex("-?\\d+(?:\\.\\d+)?")
+        private val AUDIO_EXTENSIONS = listOf(".ogg", ".mp3", ".wav", ".oga", ".flac")
 
         private val HEADING_TAGS = setOf("h1", "h2", "h3", "h4", "h5", "h6")
         private val BOLD_TAGS = setOf("b", "strong")
@@ -440,7 +521,7 @@ class WikiHtmlParser(private val baseUrl: String = BASE_URL) {
         )
         private val SKIP_TAGS = setOf(
             "style", "script", "link", "meta", "noscript", "input", "button", "template",
-            "map", "audio", "video", "source", "track",
+            "map", "video", "source", "track",
         )
         private val SKIP_CLASSES = setOf(
             "mw-editsection", "navbox", "toc", "printfooter", "catlinks", "mw-empty-elt",

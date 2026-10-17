@@ -41,6 +41,7 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +90,7 @@ fun ArticleScreen(
     val context = LocalContext.current
     var showToc by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { SoundPlayer.stop() } }
 
     val success = state as? ArticleUiState.Success
     val article: Article? = success?.result?.article

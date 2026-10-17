@@ -52,9 +52,24 @@ data class CraftingBlock(
     val output: Slot?,
 ) : ContentBlock
 
+/** One or more playable sound files (from the wiki's sound players), with optional label text. */
+data class SoundBlock(val title: RichText?, val urls: List<String>) : ContentBlock
+
 data object RuleBlock : ContentBlock
 
-data class WikiImage(val url: String, val width: Int, val height: Int, val alt: String?)
+/**
+ * An image. [crop] is set for CSS sprites: the icon is a region of a larger sprite sheet.
+ */
+data class WikiImage(
+    val url: String,
+    val width: Int,
+    val height: Int,
+    val alt: String?,
+    val crop: SpriteCrop? = null,
+)
+
+/** Region of a sprite sheet, in CSS pixels. [sheetWidth] is the CSS background-size width, or 0 if unscaled. */
+data class SpriteCrop(val left: Int, val top: Int, val width: Int, val height: Int, val sheetWidth: Int)
 
 sealed interface LinkTarget {
     data class Article(val title: String, val fragment: String?) : LinkTarget
