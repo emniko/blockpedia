@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An original isometric grass-topped cube, kept inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- top -->
+    <path android:fillColor="#FF7BC043" android:pathData="M54,26 L80,39 L54,52 L28,39 Z" />
+    <path android:fillColor="#FF8FD15A" android:pathData="M54,30 L62,34 L54,38 L46,34 Z" />
+    <path android:fillColor="#FF6AAE36" android:pathData="M40,40 L46,43 L40,46 L34,43 Z" />
+    <!-- left (shaded) -->
+    <path android:fillColor="#FF6B4A31" android:pathData="M28,39 L54,52 L54,82 L28,69 Z" />
+    <path android:fillColor="#FF4F8A27" android:pathData="M28,39 L54,52 L54,59 L28,46 Z" />
+    <path android:fillColor="#FF5A3E29" android:pathData="M34,56 L39,58.5 L39,63.5 L34,61 Z" />
+    <path android:fillColor="#FF5A3E29" android:pathData="M44,66 L49,68.5 L49,73.5 L44,71 Z" />
+    <!-- right (lit) -->
+    <path android:fillColor="#FF8E6443" android:pathData="M54,52 L80,39 L80,69 L54,82 Z" />
+    <path android:fillColor="#FF5E9D2F" android:pathData="M54,52 L80,39 L80,46 L54,59 Z" />
+    <path android:fillColor="#FF7A553A" android:pathData="M66,57 L71,54.5 L71,59.5 L66,62 Z" />
+    <path android:fillColor="#FF7A553A" android:pathData="M59,70 L64,67.5 L64,72.5 L59,75 Z" />
+</vector>
