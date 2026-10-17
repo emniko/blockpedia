@@ -80,6 +80,24 @@ class WikiHtmlParserTest {
     }
 
     @Test
+    fun smallSpritesBecomeInlineIcons() {
+        val blocks = parse(
+            """<table><tr><th colspan="2">Mob</th><th>Qty</th></tr>
+            <tr><td><a href="/w/Slime" title="Slime"><img src="/images/EntitySprite_slime.png" width="16" height="16"></a></td>
+            <td><a href="/w/Slime">Slime</a></td><td>0–2</td></tr></table>"""
+        )
+        val table = blocks.single() as TableBlock
+        val iconText = (table.rows[1].cells[0].blocks.single() as ParagraphBlock).text
+        assertEquals(ICON_CHAR.toString(), iconText.text)
+        assertEquals("https://minecraft.wiki/images/EntitySprite_slime.png", iconText.icons.single().image.url)
+        assertEquals(LinkTarget.Article("Slime", null), iconText.links.single().target)
+
+        val heart = (parse("""<p>20 <img src="/images/Heart.svg" width="9" height="9"> × 10</p>""").single() as ParagraphBlock).text
+        assertEquals("20 $ICON_CHAR × 10", heart.text)
+        assertEquals(3, heart.icons.single().index)
+    }
+
+    @Test
     fun skipsNavboxesAndStyles() {
         val blocks = parse("""<style>.x{}</style><table class="navbox"><tr><td>nav</td></tr></table><p>Text</p>""")
         assertEquals("Text", (blocks.single() as ParagraphBlock).text.text)

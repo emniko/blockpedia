@@ -107,7 +107,12 @@ class WikiHtmlParser(private val baseUrl: String = BASE_URL) {
             tag == "figure" || (tag == "div" && el.hasClass("thumb")) -> parseFigure(el, flow)
             tag == "img" -> {
                 val img = toImage(el) ?: return
-                if (img.width == 0 || img.width >= MIN_BLOCK_IMAGE) flow.emit(ImageBlock(img, null))
+                if (img.width == 0 || img.width >= MIN_BLOCK_IMAGE) {
+                    flow.emit(ImageBlock(img, null))
+                } else {
+                    // Sprites and item icons sit inline with the text, as on the wiki.
+                    flow.rb.appendIcon(img)
+                }
             }
             tag == "blockquote" -> {
                 val blocks = blocksOf(el)

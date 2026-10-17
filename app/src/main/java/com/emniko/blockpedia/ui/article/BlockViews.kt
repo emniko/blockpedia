@@ -43,7 +43,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
@@ -62,6 +66,8 @@ import com.emniko.blockpedia.parse.ContentBlock
 import com.emniko.blockpedia.parse.CraftingBlock
 import com.emniko.blockpedia.parse.GalleryBlock
 import com.emniko.blockpedia.parse.HeadingBlock
+import com.emniko.blockpedia.parse.ICON_CHAR
+import com.emniko.blockpedia.parse.IconSpan
 import com.emniko.blockpedia.parse.ImageBlock
 import com.emniko.blockpedia.parse.IndentBlock
 import com.emniko.blockpedia.parse.InfoboxBlock
@@ -129,9 +135,17 @@ fun RichTextView(
     val linkColor = MaterialTheme.colorScheme.primary
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
     val currentOnLink by rememberUpdatedState(onLink)
+    val inlineContent = remember(text.icons) { iconContent(text.icons) }
     val annotated = remember(text, linkColor, codeBackground) {
         buildAnnotatedString {
-            append(text.text)
+            // Copy the text, swapping each icon placeholder for inline content (same length, so offsets hold).
+            var pos = 0
+            text.icons.forEachIndexed { i, icon ->
+                if (icon.index > pos) append(text.text.substring(pos, icon.index))
+                appendInlineContent(iconId(i), ICON_CHAR.toString())
+                pos = icon.index + 1
+            }
+            if (pos < text.text.length) append(text.text.substring(pos))
             for (span in text.styles) {
                 val spanStyle = when (span.style) {
                     InlineStyle.Bold -> SpanStyle(fontWeight = FontWeight.Bold)
@@ -154,7 +168,34 @@ fun RichTextView(
             }
         }
     }
-    Text(text = annotated, modifier = modifier, style = style, color = color)
+    Text(text = annotated, modifier = modifier, style = style, color = color, inlineContent = inlineContent)
+}
+
+private fun iconId(index: Int) = "icon$index"
+
+/** Inline sprites scale with the text: 16px icons sit at about text height, 32px ones a bit taller. */
+private fun iconContent(icons: List<IconSpan>): Map<String, InlineTextContent> {
+    if (icons.isEmpty()) return emptyMap()
+    return icons.mapIndexed { i, icon ->
+        val img = icon.image
+        val heightEm = if (img.height > 0) (img.height / 13f).coerceIn(1.2f, 2.4f) else 1.3f
+        val ratio = if (img.width > 0 && img.height > 0) img.width.toFloat() / img.height else 1f
+        iconId(i) to InlineTextContent(
+            Placeholder(
+                width = (heightEm * ratio.coerceIn(0.5f, 4f)).em,
+                height = heightEm.em,
+                placeholderVerticalAlign = PlaceholderVerticalAlign.Center,
+            )
+        ) {
+            AsyncImage(
+                model = img.url,
+                contentDescription = img.alt,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.None,
+            )
+        }
+    }.toMap()
 }
 
 @Composable
@@ -364,17 +405,29 @@ private fun columnWidths(table: TableBlock): FloatArray {
         else -> 120f
     }
     val widths = FloatArray(columns) { base }
+    val hasIcon = BooleanArray(columns)
+    val onlyIcons = BooleanArray(columns) { true }
     for (row in table.rows) {
         var col = 0
         for (cell in row.cells) {
             if (cell.colspan == 1 && col < columns) {
                 val want = desiredWidth(cell)
                 if (want > widths[col]) widths[col] = want
+                if (!cell.placeholder && cell.blocks.isNotEmpty()) {
+                    if (isIconOnly(cell)) hasIcon[col] = true else onlyIcons[col] = false
+                }
             }
             col += cell.colspan
         }
     }
+    // Columns holding nothing but sprites (e.g. the mob icon column in drop tables) stay narrow.
+    for (c in 0 until columns) if (hasIcon[c] && onlyIcons[c]) widths[c] = 56f
     return widths
+}
+
+private fun isIconOnly(cell: TableCell): Boolean = cell.blocks.all { block ->
+    block is ParagraphBlock && block.text.icons.isNotEmpty() &&
+        block.text.text.all { it == ICON_CHAR || it.isWhitespace() }
 }
 
 @Composable

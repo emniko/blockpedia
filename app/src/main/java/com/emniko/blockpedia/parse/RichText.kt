@@ -6,11 +6,17 @@ data class StyleSpan(val start: Int, val end: Int, val style: InlineStyle)
 
 data class LinkSpan(val start: Int, val end: Int, val target: LinkTarget)
 
+/** A small inline image (sprite/icon). It occupies one [ICON_CHAR] at [index] in the text. */
+data class IconSpan(val index: Int, val image: WikiImage)
+
+const val ICON_CHAR = '￼'
+
 /** Styled text with link ranges, kept free of Compose types so parsing can run off the UI thread. */
 data class RichText(
     val text: String,
     val styles: List<StyleSpan> = emptyList(),
     val links: List<LinkSpan> = emptyList(),
+    val icons: List<IconSpan> = emptyList(),
 ) {
     val isBlank: Boolean get() = text.isBlank()
 
@@ -24,14 +30,16 @@ data class RichText(
             val sb = StringBuilder()
             val styles = mutableListOf<StyleSpan>()
             val links = mutableListOf<LinkSpan>()
+            val icons = mutableListOf<IconSpan>()
             nonBlank.forEachIndexed { i, part ->
                 if (i > 0) sb.append(separator)
                 val offset = sb.length
                 sb.append(part.text)
                 part.styles.mapTo(styles) { it.copy(start = it.start + offset, end = it.end + offset) }
                 part.links.mapTo(links) { it.copy(start = it.start + offset, end = it.end + offset) }
+                part.icons.mapTo(icons) { it.copy(index = it.index + offset) }
             }
-            return RichText(sb.toString(), styles, links)
+            return RichText(sb.toString(), styles, links, icons)
         }
     }
 }
@@ -40,6 +48,7 @@ class RichTextBuilder {
     private val sb = StringBuilder()
     private val styles = mutableListOf<StyleSpan>()
     private val links = mutableListOf<LinkSpan>()
+    private val icons = mutableListOf<IconSpan>()
 
     val length: Int get() = sb.length
 
@@ -51,6 +60,11 @@ class RichTextBuilder {
             s = s.trimStart(' ')
         }
         sb.append(s)
+    }
+
+    fun appendIcon(image: WikiImage) {
+        icons += IconSpan(sb.length, image)
+        sb.append(ICON_CHAR)
     }
 
     fun newline() {
@@ -84,7 +98,11 @@ class RichTextBuilder {
 
         val outStyles = styles.mapNotNull { sp -> clamp(sp.start, sp.end)?.let { StyleSpan(it.first, it.second, sp.style) } }
         val outLinks = links.mapNotNull { ln -> clamp(ln.start, ln.end)?.let { LinkSpan(it.first, it.second, ln.target) } }
-        return RichText(text, outStyles, outLinks)
+        val outIcons = icons.mapNotNull { ic ->
+            val i = ic.index - start
+            if (i in 0 until len && text[i] == ICON_CHAR) IconSpan(i, ic.image) else null
+        }
+        return RichText(text, outStyles, outLinks, outIcons)
     }
 
     private companion object {
