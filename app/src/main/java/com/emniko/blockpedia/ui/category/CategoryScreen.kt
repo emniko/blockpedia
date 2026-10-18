@@ -14,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -111,6 +113,8 @@ fun CategoryScreen(
     onBack: () -> Unit,
     onOpenArticle: (String) -> Unit,
     onOpenCategory: (String) -> Unit,
+    onHome: () -> Unit,
+    onSearch: () -> Unit,
 ) {
     val vm: CategoryViewModel = viewModel(key = "category:$name") { CategoryViewModel(name, Graph.repo) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -133,6 +137,14 @@ fun CategoryScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onHome) {
+                        Icon(Icons.Outlined.Home, contentDescription = "Home")
+                    }
+                    IconButton(onClick = onSearch) {
+                        Icon(Icons.Outlined.Search, contentDescription = "Search")
                     }
                 },
             )

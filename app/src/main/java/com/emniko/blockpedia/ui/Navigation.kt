@@ -36,6 +36,9 @@ import com.emniko.blockpedia.ui.search.SearchScreen
 object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
+
+    /** Search opened from inside a page: sits on top of it, so Back returns to the page. */
+    const val FIND = "find"
     const val SAVED = "saved"
     const val ABOUT = "about"
     const val ARTICLE = "article/{title}?frag={frag}"
@@ -74,6 +77,10 @@ fun BlockpediaRoot() {
 
     val openArticle: (String) -> Unit = { nav.navigate(Routes.article(it)) }
     val openCategory: (String) -> Unit = { nav.navigate(Routes.category(it)) }
+    val goHome: () -> Unit = { nav.popBackStack(Routes.HOME, inclusive = false) }
+    val openFind: () -> Unit = {
+        nav.navigate(Routes.FIND) { launchSingleTop = true }
+    }
 
     Scaffold(
         bottomBar = {
@@ -109,6 +116,15 @@ fun BlockpediaRoot() {
             composable(Routes.SEARCH) {
                 SearchScreen(onOpenArticle = openArticle)
             }
+            composable(Routes.FIND) {
+                SearchScreen(
+                    onOpenArticle = { title ->
+                        // Replace the search screen with the result, so Back skips it.
+                        nav.navigate(Routes.article(title)) { popUpTo(Routes.FIND) { inclusive = true } }
+                    },
+                    onBack = { nav.popBackStack() },
+                )
+            }
             composable(Routes.SAVED) {
                 SavedScreen(onOpenArticle = openArticle)
             }
@@ -134,7 +150,8 @@ fun BlockpediaRoot() {
                     onBack = { nav.popBackStack() },
                     onOpenArticle = { t, f -> nav.navigate(Routes.article(t, f)) },
                     onOpenCategory = openCategory,
-                    onHome = { nav.popBackStack(Routes.HOME, inclusive = false) },
+                    onHome = goHome,
+                    onSearch = openFind,
                 )
             }
             composable(
@@ -146,6 +163,8 @@ fun BlockpediaRoot() {
                     onBack = { nav.popBackStack() },
                     onOpenArticle = openArticle,
                     onOpenCategory = openCategory,
+                    onHome = goHome,
+                    onSearch = openFind,
                 )
             }
         }

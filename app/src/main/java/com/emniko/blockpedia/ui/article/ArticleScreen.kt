@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -78,6 +80,7 @@ fun ArticleScreen(
     onOpenArticle: (String, String?) -> Unit,
     onOpenCategory: (String) -> Unit,
     onHome: () -> Unit,
+    onSearch: () -> Unit,
 ) {
     val vm: ArticleViewModel = viewModel(key = "article:$title") {
         ArticleViewModel(title, Graph.repo, Graph.userStore)
@@ -147,6 +150,12 @@ fun ArticleScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onHome) {
+                        Icon(Icons.Outlined.Home, contentDescription = "Home")
+                    }
+                    IconButton(onClick = onSearch) {
+                        Icon(Icons.Outlined.Search, contentDescription = "Search")
+                    }
                     if (article != null) {
                         if (article.toc.isNotEmpty()) {
                             IconButton(onClick = { showToc = true }) {
@@ -182,10 +191,6 @@ fun ArticleScreen(
                             DropdownMenuItem(text = { Text("Open on minecraft.wiki") }, onClick = {
                                 menuOpen = false
                                 runCatching { uriHandler.openUri(pageUrl(pageTitle)) }
-                            })
-                            DropdownMenuItem(text = { Text("Home") }, onClick = {
-                                menuOpen = false
-                                onHome()
                             })
                         }
                     }

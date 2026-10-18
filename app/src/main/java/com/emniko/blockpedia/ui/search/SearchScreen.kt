@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,7 +99,7 @@ class SearchViewModel(private val repo: WikiRepository) : ViewModel() {
 }
 
 @Composable
-fun SearchScreen(onOpenArticle: (String) -> Unit) {
+fun SearchScreen(onOpenArticle: (String) -> Unit, onBack: (() -> Unit)? = null) {
     val vm: SearchViewModel = viewModel { SearchViewModel(Graph.repo) }
     val query by vm.query.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
@@ -119,7 +120,15 @@ fun SearchScreen(onOpenArticle: (String) -> Unit) {
                 .fillMaxWidth()
                 .focusRequester(focusRequester),
             placeholder = { Text("Search the Minecraft Wiki") },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            leadingIcon = {
+                if (onBack != null) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                } else {
+                    Icon(Icons.Outlined.Search, contentDescription = null)
+                }
+            },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { vm.onQueryChange("") }) {
