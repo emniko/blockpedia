@@ -14,6 +14,26 @@ Kotlin + Jetpack Compose. No WebView anywhere: wiki pages are parsed into native
 - **Search** with live results and snippets; **category browser** with infinite scroll; **random page**.
 - **Table of contents** sheet, section links that scroll in place, bookmarks, reading history.
 - **Offline**: every opened page is saved; if the network fails you get the saved copy.
+- **Seed tools** (Seeds tab), Java and Bedrock, computed on the phone and offline:
+  - **Seed map**: zoomable biome map with villages, temples, outposts, monuments, mansions, ancient cities,
+    trail ruins, trial chambers, ruined portals, shipwrecks, ocean ruins, buried treasure, plus strongholds (Java)
+    and a slime chunk overlay. Tap anything for coordinates, biome and Nether coordinates.
+  - **Nearest structures**: the 10 closest of any type from your coordinates, with distance and direction.
+  - **Slime chunks**: grid around you plus the nearest slime chunks.
+  - **World spawn** (Java).
+
+### Seed tools: accuracy
+
+| | Java | Bedrock |
+|---|---|---|
+| Biomes | Exact (1.18 – 26.3) | Exact (same generator since 1.18) |
+| Structures | Exact (cubiomes) | Placement exact; biome rules follow community docs, a few may differ |
+| Slime chunks | Exact | Exact (seed-independent) |
+| Spawn, strongholds | Exact | Not shown: no public algorithm |
+
+Native code lives in `app/src/main/cpp`: a vendored copy of [xpple/cubiomes](https://github.com/xpple/cubiomes)
+(MIT, loot library left out) and `seedmap_core.c`, which adds Bedrock structure placement (MT19937 per region,
+constants as documented by MCBE-seedcracker and SeedFinder) and the JNI bridge.
 
 ## Build the APK
 
@@ -31,7 +51,7 @@ Open the folder, let Gradle sync, then **Build ▸ Build APK(s)**, or run:
 ```
 Output: `app/build/outputs/apk/debug/app-debug.apk`
 
-Requirements: JDK 17, Android SDK 35. Minimum Android version: 8.0 (API 26).
+Requirements: JDK 17, Android SDK 35, NDK and CMake 3.22.1 (Android Studio installs them on first build). Minimum Android version: 8.0 (API 26).
 
 ## How it works
 

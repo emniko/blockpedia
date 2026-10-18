@@ -77,6 +77,17 @@ fun AboutScreen(onBack: () -> Unit) {
                 Text("Read the CC BY-NC-SA 3.0 license")
             }
 
+            Text("Seed tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Seed maps, structures, spawn and strongholds are calculated on your phone with cubiomes " +
+                    "(by Cubitect, with newer-version support by xpple), MIT licence. Bedrock structure placement " +
+                    "follows rules documented by the community Bedrock seed tools.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = { runCatching { uriHandler.openUri("https://github.com/xpple/cubiomes") } }) {
+                Text("cubiomes on GitHub")
+            }
+
             Text("Disclaimer", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
                 "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. " +

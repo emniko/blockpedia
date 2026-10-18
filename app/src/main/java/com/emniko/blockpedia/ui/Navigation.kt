@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -32,6 +34,10 @@ import com.emniko.blockpedia.ui.category.CategoryScreen
 import com.emniko.blockpedia.ui.home.HomeScreen
 import com.emniko.blockpedia.ui.saved.SavedScreen
 import com.emniko.blockpedia.ui.search.SearchScreen
+import com.emniko.blockpedia.ui.seed.NearestScreen
+import com.emniko.blockpedia.ui.seed.SeedMapScreen
+import com.emniko.blockpedia.ui.seed.SeedsScreen
+import com.emniko.blockpedia.ui.seed.SlimeScreen
 
 object Routes {
     const val HOME = "home"
@@ -43,6 +49,13 @@ object Routes {
     const val ABOUT = "about"
     const val ARTICLE = "article/{title}?frag={frag}"
     const val CATEGORY = "category/{name}"
+    const val SEEDS = "seeds"
+    const val SEED_MAP = "seedmap?x={x}&z={z}"
+    const val NEAREST = "nearest"
+    const val SLIME = "slime"
+
+    fun seedMap(pos: com.emniko.blockpedia.seed.Pos?): String =
+        if (pos == null) "seedmap" else "seedmap?x=${pos.x}&z=${pos.z}"
 
     fun article(title: String, fragment: String? = null): String {
         val base = "article/" + Uri.encode(title)
@@ -57,6 +70,7 @@ private data class TopTab(val route: String, val label: String, val selected: Im
 private val TopTabs = listOf(
     TopTab(Routes.HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
     TopTab(Routes.SEARCH, "Search", Icons.Filled.Search, Icons.Outlined.Search),
+    TopTab(Routes.SEEDS, "Seeds", Icons.Filled.Map, Icons.Outlined.Map),
     TopTab(Routes.SAVED, "Saved", Icons.Filled.Bookmarks, Icons.Outlined.Bookmarks),
 )
 
@@ -124,6 +138,43 @@ fun BlockpediaRoot() {
                     },
                     onBack = { nav.popBackStack() },
                 )
+            }
+            composable(Routes.SEEDS) {
+                SeedsScreen(
+                    onOpenMap = { nav.navigate(Routes.seedMap(it)) },
+                    onOpenNearest = { nav.navigate(Routes.NEAREST) },
+                    onOpenSlime = { nav.navigate(Routes.SLIME) },
+                )
+            }
+            composable(
+                route = Routes.SEED_MAP,
+                arguments = listOf(
+                    navArgument("x") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("z") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                SeedMapScreen(
+                    startX = entry.arguments?.getString("x")?.toIntOrNull(),
+                    startZ = entry.arguments?.getString("z")?.toIntOrNull(),
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            composable(Routes.NEAREST) {
+                NearestScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenMap = { nav.navigate(Routes.seedMap(it)) },
+                )
+            }
+            composable(Routes.SLIME) {
+                SlimeScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SAVED) {
                 SavedScreen(onOpenArticle = openArticle)
