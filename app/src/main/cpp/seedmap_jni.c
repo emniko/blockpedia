@@ -21,21 +21,88 @@ JNIEXPORT void JNICALL FN(nativeFree)(JNIEnv *env, jobject thiz, jlong h)
 }
 
 JNIEXPORT jboolean JNICALL FN(nativeBiomes)(JNIEnv *env, jobject thiz, jlong h, jint scale,
-                                            jint x, jint z, jint w, jint hgt, jintArray out)
+                                            jint x, jint z, jint w, jint hgt, jint y, jintArray out)
 {
     (void) thiz;
     if ((*env)->GetArrayLength(env, out) < w * hgt) return JNI_FALSE;
     jint *buf = (*env)->GetIntArrayElements(env, out, NULL);
     if (!buf) return JNI_FALSE;
-    int err = sm_biomes(H(h), scale, x, z, w, hgt, (int *) buf);
+    int err = sm_biomes(H(h), scale, x, z, w, hgt, y, (int *) buf);
     (*env)->ReleaseIntArrayElements(env, out, buf, 0);
     return err == 0 ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jint JNICALL FN(nativeBiomeAt)(JNIEnv *env, jobject thiz, jlong h, jint x, jint z)
+JNIEXPORT jint JNICALL FN(nativeBiomeAt)(JNIEnv *env, jobject thiz, jlong h, jint x, jint z, jint y)
 {
     (void) env; (void) thiz;
-    return sm_biome_at(H(h), x, z);
+    return sm_biome_at(H(h), x, z, y);
+}
+
+JNIEXPORT jint JNICALL FN(nativePoints)(JNIEnv *env, jobject thiz, jlong h, jint layer,
+                                        jint x0, jint z0, jint x1, jint z1, jintArray out)
+{
+    (void) thiz;
+    jsize len = (*env)->GetArrayLength(env, out);
+    jint *buf = (*env)->GetIntArrayElements(env, out, NULL);
+    if (!buf) return -1;
+    int n = sm_points(H(h), layer, x0, z0, x1, z1, (int *) buf, len / 4);
+    (*env)->ReleaseIntArrayElements(env, out, buf, 0);
+    return n;
+}
+
+JNIEXPORT jint JNICALL FN(nativeVariant)(JNIEnv *env, jobject thiz, jlong h, jint type, jint x, jint z, jintArray yOut)
+{
+    (void) thiz;
+    int y;
+    int flags = sm_variant(H(h), type, x, z, &y);
+    jint yv = y;
+    (*env)->SetIntArrayRegion(env, yOut, 0, 1, &yv);
+    return flags;
+}
+
+JNIEXPORT jint JNICALL FN(nativeRavines)(JNIEnv *env, jobject thiz, jlong h, jint cx0, jint cz0,
+                                         jint cw, jint ch, jshortArray out)
+{
+    (void) thiz;
+    if ((*env)->GetArrayLength(env, out) < cw * 16 * ch * 16) return -1;
+    jshort *buf = (*env)->GetShortArrayElements(env, out, NULL);
+    if (!buf) return -1;
+    int r = sm_ravines(H(h), cx0, cz0, cw, ch, (short *) buf);
+    (*env)->ReleaseShortArrayElements(env, out, buf, 0);
+    return r;
+}
+
+JNIEXPORT jboolean JNICALL FN(nativeHeights)(JNIEnv *env, jobject thiz, jlong h, jint scale,
+                                             jint x, jint z, jint w, jint hgt, jintArray out)
+{
+    (void) thiz;
+    if ((*env)->GetArrayLength(env, out) < w * hgt) return JNI_FALSE;
+    jint *buf = (*env)->GetIntArrayElements(env, out, NULL);
+    if (!buf) return JNI_FALSE;
+    int err = sm_heights(H(h), scale, x, z, w, hgt, (int *) buf);
+    (*env)->ReleaseIntArrayElements(env, out, buf, 0);
+    return err == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL FN(nativeLoot)(JNIEnv *env, jobject thiz, jlong h, jint type, jint x, jint z)
+{
+    (void) thiz;
+    char *buf = (char *) malloc(32768);
+    if (!buf) return NULL;
+    int chests = sm_loot(H(h), type, x, z, buf, 32768);
+    jstring s = chests > 0 ? (*env)->NewStringUTF(env, buf) : NULL;
+    free(buf);
+    return s;
+}
+
+JNIEXPORT jint JNICALL FN(nativeLootCount)(JNIEnv *env, jobject thiz, jlong h, jint type, jint x, jint z, jstring item)
+{
+    (void) thiz;
+    const char *s = (*env)->GetStringUTFChars(env, item, NULL);
+    if (!s) return 0;
+    int n = sm_loot_count(H(h), type, x, z, s);
+    (*env)->ReleaseStringUTFChars(env, item, s);
+    return n;
 }
 
 JNIEXPORT jint JNICALL FN(nativeStructures)(JNIEnv *env, jobject thiz, jlong h, jint type,

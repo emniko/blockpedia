@@ -7,11 +7,15 @@ file(GLOB CUBIOMES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cubiomes/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/cubiomes/features/*.c
 )
+# Chest loot (MIT, see cubiomes/loot/LICENSE_loot_library.h.txt), including per-version tables.
+file(GLOB_RECURSE LOOT_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cubiomes/loot/*.c)
 
 add_library(seedmap SHARED
     seedmap_core.c
+    seedmap_layers.c
     seedmap_jni.c
     ${CUBIOMES_SOURCES}
+    ${LOOT_SOURCES}
 )
 
 target_include_directories(seedmap PRIVATE

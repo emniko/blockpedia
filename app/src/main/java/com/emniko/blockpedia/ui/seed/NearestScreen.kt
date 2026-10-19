@@ -47,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.emniko.blockpedia.Graph
 import com.emniko.blockpedia.seed.Edition
+import com.emniko.blockpedia.seed.MapPoint
 import com.emniko.blockpedia.seed.Dimension
 import com.emniko.blockpedia.seed.Pos
 import com.emniko.blockpedia.seed.SeedEngine
@@ -64,7 +65,7 @@ private data class Target(val label: String, val kind: StructureKind?) {
     val iconUrl: String get() = kind?.iconUrl ?: STRONGHOLD_ICON_URL
 }
 
-private data class Found(val pos: Pos, val distance: Int, val direction: String)
+private data class Found(val pos: Pos, val distance: Int, val direction: String, val y: Int? = null)
 
 private sealed interface NearestState {
     data object Idle : NearestState
@@ -97,15 +98,15 @@ private suspend fun search(engine: SeedEngine, target: Target, x: Int, z: Int): 
         return NearestState.Done(target.label, target.iconUrl, target.dimension, results, 0)
     }
     var radius = 0
-    var found: List<Pos> = emptyList()
+    var found: List<MapPoint> = emptyList()
     for (r in radiiFor(kind)) {
         radius = r
-        found = engine.structures(kind, x - r, z - r, x + r, z + r)
+        found = engine.features(kind, x - r, z - r, x + r, z + r)
             ?: return NearestState.Failed("${kind.label}s don't generate in this version.")
         // Only results inside the circle are guaranteed to be the true nearest ones.
-        if (found.count { it.distanceTo(x, z) <= r } >= RESULTS) break
+        if (found.count { it.pos.distanceTo(x, z) <= r } >= RESULTS) break
     }
-    val results = found.map { Found(it, it.distanceTo(x, z).toInt(), direction(x, z, it.x, it.z)) }
+    val results = found.map { Found(it.pos, it.pos.distanceTo(x, z).toInt(), direction(x, z, it.pos.x, it.pos.z), it.y) }
         .sortedBy { it.distance }.take(RESULTS)
     return NearestState.Done(target.label, target.iconUrl, target.dimension, results, radius)
 }
@@ -221,7 +222,8 @@ fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos, Dimension) -> Unit) {
                     itemsIndexed(s.results) { i, f ->
                         ListItem(
                             headlineContent = {
-                                Text("${i + 1}.  X ${f.pos.x}, Z ${f.pos.z}", fontWeight = FontWeight.SemiBold)
+                                val yText = f.y?.let { ", Y $it" } ?: ""
+                                Text("${i + 1}.  X ${f.pos.x}$yText, Z ${f.pos.z}", fontWeight = FontWeight.SemiBold)
                             },
                             supportingContent = {
                                 val other = when (s.dimension) {

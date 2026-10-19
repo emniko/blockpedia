@@ -1,1 +1,1 @@
-Vendored from https://github.com/xpple/cubiomes at b99f6e4 (MIT). The loot library, tests and xradv tool are not included.
+Vendored from https://github.com/xpple/cubiomes at b99f6e4 (MIT). Includes the loot library (MIT, ScriptLine; see loot/LICENSE_loot_library.h.txt). Tests and the xradv tool are not included.

@@ -91,6 +91,8 @@ enum class StructureKind(
     val dimension: Dimension = Dimension.Overworld,
     val java: Boolean = true,
     val bedrock: Boolean = true,
+    /** Non-zero for point layers computed by the native layer code (SMP_* ids) instead of a structure id. */
+    val pointLayer: Int = 0,
 ) {
     Village(5, "Village", 'V', 0xFFF4B740, 64),
     Outpost(10, "Pillager outpost", 'P', 0xFF9E9E9E, 64),
@@ -116,6 +118,13 @@ enum class StructureKind(
     NetherComplex(18, "Fortress or bastion", 'F', 0xFFE57373, 64, Dimension.Nether, java = false),
     NetherPortal(12, "Ruined portal (Nether)", 'R', 0xFFCE93D8, 16, Dimension.Nether),
     EndCity(21, "End city", 'E', 0xFFE1BEE7, 64, Dimension.End, bedrock = false),
+
+    // Point layers with Y levels (Java only).
+    Geode(-1, "Amethyst geode", 'G', 0xFFB39DDB, 4, bedrock = false, pointLayer = 1),
+    DesertWell(-1, "Desert well", 'L', 0xFFE6D3A3, 16, bedrock = false, pointLayer = 2),
+    EndGateway(-1, "End gateway", 'Y', 0xFF80DEEA, 16, Dimension.End, bedrock = false, pointLayer = 3),
+    CopperVein(-1, "Copper ore vein", 'U', 0xFFE07A4F, 4, bedrock = false, pointLayer = 4),
+    IronVein(-1, "Iron ore vein", 'N', 0xFFD8AF93, 4, bedrock = false, pointLayer = 5),
     ;
 
     fun availableIn(edition: Edition): Boolean = if (edition == Edition.Java) java else bedrock
@@ -154,7 +163,60 @@ val StructureKind.iconUrl: String
         StructureKind.Bastion -> "EnvSprite_bastion-remnant.png"
         StructureKind.NetherPortal -> "EnvSprite_ruined-portal.png"
         StructureKind.EndCity -> "EnvSprite_end-city.png"
+        StructureKind.Geode -> "EnvSprite_amethyst-geode.png"
+        StructureKind.DesertWell -> "EnvSprite_desert-well.png"
+        StructureKind.EndGateway -> "EnvSprite_end-gateway.png"
+        StructureKind.CopperVein -> "BlockSprite_block-of-raw-copper.png"
+        StructureKind.IronVein -> "BlockSprite_block-of-raw-iron.png"
     }
+
+const val APPLE_ICON_URL = WIKI_IMAGES + "ItemSprite_enchanted-golden-apple.png"
+
+/** A map feature: a structure (y unknown) or a point layer with a Y level and extra info. */
+data class MapPoint(val pos: Pos, val y: Int? = null, val info: Int = 0)
+
+/** cubiomes' structure id for strongholds (loot lookups). */
+const val STRONGHOLD_ID = 27
+
+/** Structures whose chest loot the library can generate (Java). */
+val StructureKind.hasLoot: Boolean
+    get() = this in setOf(
+        StructureKind.DesertTemple, StructureKind.JungleTemple, StructureKind.Igloo, StructureKind.Outpost,
+        StructureKind.Shipwreck, StructureKind.BuriedTreasure, StructureKind.RuinedPortal, StructureKind.NetherPortal,
+        StructureKind.Fortress, StructureKind.Bastion, StructureKind.EndCity, StructureKind.AbandonedCamp,
+    )
+
+/** Structures that can hold enchanted golden apples and whose loot is supported. */
+val StructureKind.canHaveApples: Boolean
+    get() = this == StructureKind.DesertTemple || this == StructureKind.RuinedPortal ||
+        this == StructureKind.NetherPortal || this == StructureKind.Bastion
+
+/** Structures with variants worth showing (zombie village, giant portal, igloo basement, end ship). */
+val StructureKind.hasVariants: Boolean
+    get() = this == StructureKind.Village || this == StructureKind.RuinedPortal ||
+        this == StructureKind.NetherPortal || this == StructureKind.Igloo || this == StructureKind.EndCity
+
+/** Where to dig: exact Y when known, otherwise heights documented on the Minecraft Wiki. */
+fun yLevelText(kind: StructureKind, point: MapPoint): String? = when (kind) {
+    StructureKind.AncientCity -> "Floor at Y -51"
+    StructureKind.TrialChambers -> "Start room at Y -40 to -20; most rooms between Y -20 and 0"
+    StructureKind.Mineshaft -> "Underground (often at the surface in badlands)"
+    StructureKind.Geode -> point.y?.let { "Geode at about Y $it" }
+    StructureKind.CopperVein -> point.y?.let { "Copper ore found at Y $it (veins run from Y 0 to 50)" }
+    StructureKind.IronVein -> point.y?.let { "Iron ore found at Y $it (veins run from Y -60 to -8)" }
+    else -> null
+}
+
+const val STRONGHOLD_Y_TEXT = "Underground, at any height"
+
+/** Readable text for variant flags from the native engine. */
+fun variantText(flags: Int): List<String> = buildList {
+    if (flags and 1 != 0) add("Zombie village")
+    if (flags and 2 != 0) add("Giant portal")
+    if (flags and 4 != 0) add("Buried underground")
+    if (flags and 8 != 0) add("Has a hidden basement")
+    if (flags and 16 != 0) add("Has an end ship, with elytra")
+}
 
 const val STRONGHOLD_ICON_URL = WIKI_IMAGES + "EnvSprite_stronghold.png"
 

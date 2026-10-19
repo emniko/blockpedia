@@ -1,11 +1,8 @@
-#include "seedmap_core.h"
+#include "seedmap_internal.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "cubiomes/finders.h"
-#include "cubiomes/generator.h"
-#include "cubiomes/util.h"
 
 /* The Kotlin side uses these cubiomes enum values directly. */
 _Static_assert(Desert_Pyramid == 1 && Village == 5 && Ancient_City == 13 && Treasure == 14,
@@ -17,16 +14,7 @@ _Static_assert(Trail_Ruins == 24 && Trial_Chambers == 25 && Abandoned_Camp == 26
  * how cubiomes checks structure biomes for 1.18+. In 1:4 vertical units. */
 #define SURFACE_Y (319 >> 2)
 
-struct SeedMap {
-    Generator g;
-    SurfaceNoise endSurface; /* Java End: end city terrain check */
-    uint64_t seed;
-    int mc;
-    int edition;
-    int dim;
-    int *cache;
-    size_t cacheLen;
-};
+
 
 SeedMap *sm_create(uint64_t seed, int mc, int edition, int dim)
 {
@@ -53,11 +41,12 @@ static int sample_y(const SeedMap *sm)
 void sm_free(SeedMap *sm)
 {
     if (!sm) return;
+    sm_free_layers(sm);
     free(sm->cache);
     free(sm);
 }
 
-int sm_biomes(SeedMap *sm, int scale, int x, int z, int w, int h, int *out)
+int sm_biomes(SeedMap *sm, int scale, int x, int z, int w, int h, int blockY, int *out)
 {
     Range r;
     memset(&r, 0, sizeof r);
@@ -66,7 +55,8 @@ int sm_biomes(SeedMap *sm, int scale, int x, int z, int w, int h, int *out)
     r.z = z;
     r.sx = w;
     r.sz = h;
-    r.y = scale == 1 ? 319 : sample_y(sm);
+    if (blockY != INT_MIN && sm->dim == DIM_OVERWORLD) r.y = scale == 1 ? blockY : floordiv(blockY, 4);
+    else r.y = scale == 1 ? 319 : sample_y(sm);
     r.sy = 1;
 
     size_t need = getMinCacheSize(&sm->g, scale, w, 1, h);
@@ -81,9 +71,10 @@ int sm_biomes(SeedMap *sm, int scale, int x, int z, int w, int h, int *out)
     return 0;
 }
 
-int sm_biome_at(SeedMap *sm, int blockX, int blockZ)
+int sm_biome_at(SeedMap *sm, int blockX, int blockZ, int blockY)
 {
-    return getBiomeAt(&sm->g, 4, blockX >> 2, sample_y(sm), blockZ >> 2);
+    int y = (blockY != INT_MIN && sm->dim == DIM_OVERWORLD) ? floordiv(blockY, 4) : sample_y(sm);
+    return getBiomeAt(&sm->g, 4, blockX >> 2, y, blockZ >> 2);
 }
 
 /* ------------------------------------------------------------------ Bedrock */

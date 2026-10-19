@@ -40,13 +40,67 @@ class SeedEngine(val config: SeedConfig, val dimension: Dimension = Dimension.Ov
         }
     }
 
-    /** Biome ids for a w*h grid; (x, z) is the corner in scaled units. */
-    suspend fun biomes(scale: Int, x: Int, z: Int, w: Int, h: Int): IntArray? = use { handle ->
+    /** Biome ids for a w*h grid; (x, z) is the corner in scaled units; [y] a block height or [SURFACE]. */
+    suspend fun biomes(scale: Int, x: Int, z: Int, w: Int, h: Int, y: Int = SURFACE): IntArray? = use { handle ->
         val out = IntArray(w * h)
-        if (SeedNative.nativeBiomes(handle, scale, x, z, w, h, out)) out else null
+        if (SeedNative.nativeBiomes(handle, scale, x, z, w, h, y, out)) out else null
     }
 
-    suspend fun biomeAt(x: Int, z: Int): Int = use { SeedNative.nativeBiomeAt(it, x, z) }
+    suspend fun biomeAt(x: Int, z: Int, y: Int = SURFACE): Int = use { SeedNative.nativeBiomeAt(it, x, z, y) }
+
+    /** Structures or point layers of [kind] in [x0, x1) x [z0, z1). Null if unsupported here. */
+    suspend fun features(kind: StructureKind, x0: Int, z0: Int, x1: Int, z1: Int): List<MapPoint>? =
+        if (kind.pointLayer == 0) {
+            structures(kind, x0, z0, x1, z1)?.map { MapPoint(it) }
+        } else {
+            points(kind.pointLayer, x0, z0, x1, z1)?.map { MapPoint(Pos(it[0], it[2]), it[1].takeIf { y -> y != Int.MIN_VALUE }, it[3]) }
+        }
+
+    /** Raw (x, y, z, info) groups from a native point layer. */
+    suspend fun points(layer: Int, x0: Int, z0: Int, x1: Int, z1: Int): List<IntArray>? = use { handle ->
+        var buf = IntArray(4096)
+        var n = SeedNative.nativePoints(handle, layer, x0, z0, x1, z1, buf)
+        if (n == buf.size / 4) {
+            buf = IntArray(65536)
+            n = SeedNative.nativePoints(handle, layer, x0, z0, x1, z1, buf)
+        }
+        if (n < 0) null else List(n) { buf.copyOfRange(4 * it, 4 * it + 4) }
+    }
+
+    /** Ore blocks (x, y, z) in one chunk: diamonds in the Overworld, ancient debris in the Nether. */
+    suspend fun chunkOres(chunkX: Int, chunkZ: Int): List<IntArray>? {
+        val layer = when (dimension) {
+            Dimension.Overworld -> LAYER_DIAMOND
+            Dimension.Nether -> LAYER_DEBRIS
+            Dimension.End -> return null
+        }
+        return points(layer, chunkX * 16, chunkZ * 16, chunkX * 16 + 16, chunkZ * 16 + 16)
+    }
+
+    /** Variant flags (see [variantText]) and Y if known. */
+    suspend fun variant(structureId: Int, x: Int, z: Int): Pair<Int, Int?> = use { handle ->
+        val y = IntArray(1)
+        val flags = SeedNative.nativeVariant(handle, structureId, x, z, y)
+        flags to y[0].takeIf { it != Int.MIN_VALUE }
+    }
+
+    /** Chest loot as text lines "chest\titem\tcount", or null if the structure has no supported loot. */
+    suspend fun loot(structureId: Int, x: Int, z: Int): String? = use { SeedNative.nativeLoot(it, structureId, x, z) }
+
+    suspend fun lootCount(structureId: Int, x: Int, z: Int, item: String): Int =
+        use { SeedNative.nativeLootCount(it, structureId, x, z, item) }
+
+    /** Lowest ravine floor Y per block column for 16x16 chunks from (cx0, cz0); [NO_RAVINE] where none. */
+    suspend fun ravines(cx0: Int, cz0: Int, chunks: Int): ShortArray? = use { handle ->
+        val out = ShortArray(chunks * 16 * chunks * 16)
+        if (SeedNative.nativeRavines(handle, cx0, cz0, chunks, chunks, out) < 0) null else out
+    }
+
+    /** Approximate surface height per cell; (x, z) is the corner in scaled units. */
+    suspend fun heights(scale: Int, x: Int, z: Int, w: Int, h: Int): IntArray? = use { handle ->
+        val out = IntArray(w * h)
+        if (SeedNative.nativeHeights(handle, scale, x, z, w, h, out)) out else null
+    }
 
     /** Structures of [kind] in the block rectangle [x0, x1) x [z0, z1). Null if unsupported. */
     suspend fun structures(kind: StructureKind, x0: Int, z0: Int, x1: Int, z1: Int): List<Pos>? = use { handle ->
@@ -87,6 +141,10 @@ class SeedEngine(val config: SeedConfig, val dimension: Dimension = Dimension.Ov
     }
 
     companion object {
+        const val SURFACE = Int.MIN_VALUE
+        const val NO_RAVINE: Short = 32767
+        private const val LAYER_DIAMOND = 6
+        private const val LAYER_DEBRIS = 7
         const val POOL_SIZE = 3
         private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(POOL_SIZE)
     }

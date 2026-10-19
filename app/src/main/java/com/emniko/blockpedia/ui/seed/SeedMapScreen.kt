@@ -94,6 +94,20 @@ import com.emniko.blockpedia.Graph
 import com.emniko.blockpedia.seed.CELLS
 import com.emniko.blockpedia.seed.Edition
 import com.emniko.blockpedia.seed.Dimension
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.emniko.blockpedia.seed.APPLE_ICON_URL
+import com.emniko.blockpedia.seed.MapOptions
+import com.emniko.blockpedia.seed.MapPoint
+import com.emniko.blockpedia.seed.RAVINE_SCALE
+import com.emniko.blockpedia.seed.STRONGHOLD_ID
+import com.emniko.blockpedia.seed.STRONGHOLD_Y_TEXT
+import com.emniko.blockpedia.seed.canHaveApples
+import com.emniko.blockpedia.seed.hasLoot
+import com.emniko.blockpedia.seed.hasVariants
+import com.emniko.blockpedia.seed.variantText
+import com.emniko.blockpedia.seed.yLevelText
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -119,7 +133,14 @@ private const val SLIME_MAX_BPP = 1.0
 private const val TAP_RADIUS_DP = 24
 
 class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel() {
-    val tiles = MapTiles(engine, viewModelScope)
+    /** Replaced when the map options change, which starts a fresh tile cache. */
+    var tiles by mutableStateOf(MapTiles(engine, viewModelScope, MapOptions()))
+        private set
+
+    fun setOptions(options: MapOptions) {
+        if (options != tiles.options) tiles = MapTiles(engine, viewModelScope, options)
+    }
+
     val spawn = MutableStateFlow<Pos?>(null)
     val strongholds = MutableStateFlow<List<Pos>>(emptyList())
 
@@ -136,7 +157,7 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
 
     init {
         val loader = appContext.imageLoader
-        val urls = (kinds.map { it.iconUrl } + STRONGHOLD_ICON_URL).distinct()
+        val urls = (kinds.map { it.iconUrl } + STRONGHOLD_ICON_URL + APPLE_ICON_URL).distinct()
         for (url in urls) {
             viewModelScope.launch {
                 val request = ImageRequest.Builder(appContext).data(url).allowHardware(false).build()
@@ -164,13 +185,27 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
 /** Something on the map the user tapped. */
 private sealed interface Picked {
     val pos: Pos
-    data class Structure(val kind: StructureKind, override val pos: Pos) : Picked
+    data class Structure(val kind: StructureKind, val point: MapPoint) : Picked {
+        override val pos: Pos get() = point.pos
+    }
     data class Stronghold(override val pos: Pos) : Picked
     data class Spawn(override val pos: Pos) : Picked
     data class Point(override val pos: Pos) : Picked
 }
 
-private data class Marker(val kind: StructureKind, val pos: Pos)
+private data class Marker(val kind: StructureKind, val point: MapPoint, val apple: Boolean) {
+    val pos: Pos get() = point.pos
+}
+
+/** Extra facts about a tapped spot, loaded after the tap. */
+private data class PickDetails(
+    val biome: String? = null,
+    val lines: List<String> = emptyList(),
+    val loot: List<String> = emptyList(),
+    val ores: List<String> = emptyList(),
+    val oreTitle: String? = null,
+    val loading: Boolean = true,
+)
 
 /** Coarsest biome cell size that still looks sharp at this zoom. */
 private fun scaleFor(bpp: Double): Int = SCALES.firstOrNull { it >= bpp * 3 } ?: SCALES.last()
@@ -196,7 +231,9 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     val enabled by vm.enabled.collectAsState()
     val showSlime by vm.showSlime.collectAsState()
     val showStrongholds by vm.showStrongholds.collectAsState()
-    val tileVersion by vm.tiles.version.collectAsState()
+    val tiles = vm.tiles
+    val options = tiles.options
+    val tileVersion by tiles.version.collectAsState()
 
     var centerX by rememberSaveable { mutableDoubleStateOf(startX?.toDouble() ?: 0.0) }
     var centerZ by rememberSaveable { mutableDoubleStateOf(startZ?.toDouble() ?: 0.0) }
@@ -234,18 +271,18 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     }
     // Keyed on the view model too: switching dimension keeps the same tile coordinates
     // but needs the new dimension's tiles.
-    LaunchedEffect(vm, visible, canvasSize) {
-        if (canvasSize != IntSize.Zero) vm.tiles.request(visible)
+    LaunchedEffect(vm, tiles, visible, canvasSize) {
+        if (canvasSize != IntSize.Zero) tiles.request(visible)
     }
 
     // Structure markers from loaded tiles.
-    val markers = remember(vm, visible, tileVersion, enabled) {
+    val markers = remember(vm, tiles, visible, tileVersion, enabled) {
         buildList {
             for (key in visible) {
-                val tile = vm.tiles.get(key) ?: continue
-                for ((kind, list) in tile.structures) {
+                val tile = tiles.get(key) ?: continue
+                for ((kind, list) in tile.features) {
                     if (kind !in enabled) continue
-                    list.forEach { add(Marker(kind, it)) }
+                    list.forEach { add(Marker(kind, it, it.pos in tile.apples)) }
                 }
             }
         }
@@ -278,21 +315,17 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     val latestStrongholds by rememberUpdatedState(strongholds)
     val latestShowStrongholds by rememberUpdatedState(showStrongholds)
 
-    // Biome name for a tapped point.
-    var pickedBiome by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(picked, engine) {
-        pickedBiome = null
+    // Biome, Y levels, variants, chest loot and ores for a tapped spot.
+    var details by remember { mutableStateOf(PickDetails()) }
+    LaunchedEffect(picked, engine, tiles) {
         val p = picked ?: return@LaunchedEffect
-        if (!engine.showsBiomes) {
-            pickedBiome = "Biome not shown for Bedrock"
-            return@LaunchedEffect
-        }
-        pickedBiome = try {
-            engine.biomeName(engine.biomeAt(p.pos.x, p.pos.z))
+        details = PickDetails()
+        details = try {
+            loadDetails(engine, p, options, tiles, scaleFor(bpp))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            null
+            PickDetails(loading = false)
         }
     }
 
@@ -341,7 +374,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                 best = p
             }
         }
-        latestMarkers.forEach { consider(Picked.Structure(it.kind, it.pos)) }
+        latestMarkers.forEach { consider(Picked.Structure(it.kind, it.point)) }
         if (latestShowStrongholds) latestStrongholds.forEach { consider(Picked.Stronghold(it)) }
         latestSpawn?.let { consider(Picked.Spawn(it)) }
         picked = best ?: Picked.Point(screenToWorld(o))
@@ -405,7 +438,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                     val br = worldToScreen((key.blockX + key.blockSize).toDouble(), (key.blockZ + key.blockSize).toDouble())
                     val dstOffset = IntOffset(tl.x.roundToInt(), tl.y.roundToInt())
                     val dstSize = IntSize(br.x.roundToInt() - dstOffset.x, br.y.roundToInt() - dstOffset.y)
-                    val tile = vm.tiles.get(key)
+                    val tile = tiles.get(key)
                     if (tile != null) {
                         drawImage(tile.image, IntOffset.Zero, IntSize(CELLS, CELLS), dstOffset, dstSize, filterQuality = FilterQuality.None)
                         continue
@@ -418,12 +451,24 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                             Math.floorDiv(key.blockX, parentBlocks),
                             Math.floorDiv(key.blockZ, parentBlocks),
                         )
-                        val p = vm.tiles.get(parent) ?: continue
+                        val p = tiles.get(parent) ?: continue
                         val cells = (key.blockSize / parentScale).coerceAtLeast(1)
                         val sx = (key.blockX - parent.blockX) / parentScale
                         val sz = (key.blockZ - parent.blockZ) / parentScale
                         drawImage(p.image, IntOffset(sx, sz), IntSize(cells, cells), dstOffset, dstSize, filterQuality = FilterQuality.None)
                         break
+                    }
+                }
+
+                // Ravines (block-resolution overlay on the most zoomed-in tiles).
+                if (options.ravines && key0Scale(visible) == RAVINE_SCALE) {
+                    for (key in visible) {
+                        val img = tiles.get(key)?.ravineImage ?: continue
+                        val tl = worldToScreen(key.blockX.toDouble(), key.blockZ.toDouble())
+                        val br = worldToScreen((key.blockX + key.blockSize).toDouble(), (key.blockZ + key.blockSize).toDouble())
+                        val dstOffset = IntOffset(tl.x.roundToInt(), tl.y.roundToInt())
+                        val dstSize = IntSize(br.x.roundToInt() - dstOffset.x, br.y.roundToInt() - dstOffset.y)
+                        drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), dstOffset, dstSize, filterQuality = FilterQuality.None)
                     }
                 }
 
@@ -456,6 +501,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                 val r = 9.dp.toPx()
                 val iconPx = 20.dp.toPx()
                 val backdrop = 3.dp.toPx()
+                val appleIcon = icons[APPLE_ICON_URL]
                 for (m in markers) {
                     val c = worldToScreen(m.pos.x.toDouble(), m.pos.z.toDouble())
                     val icon = icons[m.kind.iconUrl]
@@ -466,6 +512,14 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                         drawCircle(Color(0xFF1B1B1B), r, c, style = Stroke(1.5.dp.toPx()))
                         val label = markerLabels.getValue(m.kind)
                         drawText(label, topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f))
+                    }
+                    if (m.apple) {
+                        val badge = c + Offset(iconPx * 0.6f, -iconPx * 0.6f)
+                        if (appleIcon != null) {
+                            drawIconMarker(appleIcon, badge, iconPx * 0.7f, backdrop * 0.6f, Color(0xE6FFF59D))
+                        } else {
+                            drawCircle(Color(0xFFFFD54F), r * 0.6f, badge)
+                        }
                     }
                 }
                 if (showStrongholds) {
@@ -539,6 +593,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MapPill("X ${floor(centerX).toInt()}  Z ${floor(centerZ).toInt()}")
                     if (showSlime && !slimeOn && dimension == Dimension.Overworld) MapPill("Zoom in for slime chunks")
+                    if (options.ravines && scale != RAVINE_SCALE && dimension == Dimension.Overworld) MapPill("Zoom in for ravines")
                 }
                 if (!engine.showsBiomes) {
                     MapPill("Bedrock Nether: exact positions, no biomes. Bedrock picks fortress or bastion per region.")
@@ -567,7 +622,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
             picked?.let { p ->
                 PickedCard(
                     picked = p,
-                    biome = pickedBiome,
+                    details = details,
                     dimension = dimension,
                     onClose = { picked = null },
                     modifier = Modifier
@@ -606,13 +661,32 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                     }
                 }
                 Text(
-                    "Small structures appear as you zoom in. Dungeon spawners can't be shown: " +
-                        "they depend on cave shapes the map can't calculate.",
+                    "Small features appear as you zoom in. Tap any spot to see its diamonds (or ancient debris in the Nether).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (dimension == Dimension.Overworld) {
                     LayerSwitch("Slime chunks", showSlime) { vm.showSlime.value = it }
+                }
+                if (dimension == Dimension.Overworld && engine.showsBiomes) {
+                    Text("Biome height", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    val heights = listOf("Surface" to SeedEngine.SURFACE, "Caves (Y 0)" to 0, "Deep (Y -51)" to -51)
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        heights.forEachIndexed { i, (label, y) ->
+                            SegmentedButton(
+                                selected = options.biomeY == y,
+                                onClick = { vm.setOptions(options.copy(biomeY = y)) },
+                                shape = SegmentedButtonDefaults.itemShape(i, heights.size),
+                            ) { Text(label, maxLines = 1) }
+                        }
+                    }
+                    LayerSwitch("Terrain shading (approximate)", options.terrain) { vm.setOptions(options.copy(terrain = it)) }
+                }
+                if (config.edition == Edition.Java && dimension == Dimension.Overworld) {
+                    LayerSwitch("Ravines (zoom in)", options.ravines) { vm.setOptions(options.copy(ravines = it)) }
+                }
+                if (config.edition == Edition.Java && vm.kinds.any { it.canHaveApples }) {
+                    LayerSwitch("Enchanted golden apples in chests", options.apples) { vm.setOptions(options.copy(apples = it)) }
                 }
                 if (config.edition == Edition.Java && dimension == Dimension.Overworld) {
                     LayerSwitch("Strongholds", showStrongholds) { vm.showStrongholds.value = it }
@@ -690,7 +764,7 @@ private fun LayerSwitch(label: String, checked: Boolean, onChange: (Boolean) -> 
 }
 
 @Composable
-private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onClose: () -> Unit, modifier: Modifier = Modifier) {
+private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimension, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val title = when (picked) {
         is Picked.Structure -> picked.kind.label
         is Picked.Stronghold -> "Stronghold"
@@ -703,7 +777,7 @@ private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onC
         shadowElevation = 6.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.Top) {
             val iconUrl = when (picked) {
                 is Picked.Structure -> picked.kind.iconUrl
                 is Picked.Stronghold -> STRONGHOLD_ICON_URL
@@ -713,7 +787,13 @@ private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onC
                 StructureIcon(iconUrl, 36.dp)
                 Spacer(Modifier.size(12.dp))
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
                     "X ${picked.pos.x}, Z ${picked.pos.z}",
@@ -723,7 +803,7 @@ private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onC
                 )
                 Text(
                     buildString {
-                        append(biome ?: "…")
+                        append(details.biome ?: "…")
                         when (dimension) {
                             Dimension.Overworld -> append(" · Nether X ${Math.floorDiv(picked.pos.x, 8)}, Z ${Math.floorDiv(picked.pos.z, 8)}")
                             Dimension.Nether -> append(" · Overworld X ${picked.pos.x * 8}, Z ${picked.pos.z * 8}")
@@ -738,18 +818,131 @@ private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onC
                     is Picked.Stronghold -> STRONGHOLD_SPAWNERS
                     else -> null
                 }
-                if (spawnerText != null) {
-                    Text(
-                        spawnerText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
+                if (spawnerText != null) DetailLine(spawnerText, emphasis = true)
+                details.lines.forEach { DetailLine(it) }
+                if (details.loot.isNotEmpty()) {
+                    DetailHeader("Chest loot")
+                    details.loot.forEach { DetailLine(it) }
                 }
+                if (details.ores.isNotEmpty()) {
+                    DetailHeader(details.oreTitle ?: "Ores")
+                    details.ores.forEach { DetailLine(it) }
+                }
+                if (details.loading) DetailLine("Loading details…")
             }
             IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = "Close") }
         }
     }
+}
+
+@Composable
+private fun DetailHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
+@Composable
+private fun DetailLine(text: String, emphasis: Boolean = false) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        fontWeight = if (emphasis) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (emphasis) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+private fun key0Scale(visible: List<TileKey>): Int = visible.firstOrNull()?.scale ?: 0
+
+/** "minecraft:enchanted_golden_apple" -> "Enchanted golden apple". */
+private fun itemName(id: String): String =
+    id.substringAfter(':').replace('_', ' ').replaceFirstChar { it.uppercaseChar() }
+
+/** Loot text lines ("chest\titem\tcount") grouped per chest, with stacks of the same item added up. */
+private fun lootLines(text: String): List<String> {
+    val chests = sortedMapOf<Int, LinkedHashMap<String, Int>>()
+    for (line in text.lineSequence()) {
+        val parts = line.split('\t')
+        if (parts.size != 3) continue
+        val chest = parts[0].toIntOrNull() ?: continue
+        val count = parts[2].toIntOrNull() ?: continue
+        val items = chests.getOrPut(chest) { LinkedHashMap() }
+        items[parts[1]] = (items[parts[1]] ?: 0) + count
+    }
+    return chests.map { (chest, items) ->
+        val list = items.entries.joinToString(", ") { (id, n) ->
+            val name = itemName(id)
+            if (id.endsWith("enchanted_golden_apple")) "⭐ $n × $name" else "$n × $name"
+        }
+        "Chest ${chest + 1}: $list"
+    }
+}
+
+private suspend fun loadDetails(
+    engine: SeedEngine,
+    picked: Picked,
+    options: MapOptions,
+    tiles: MapTiles,
+    scale: Int,
+): PickDetails {
+    val pos = picked.pos
+    val biome = if (!engine.showsBiomes) {
+        "Biome not shown for Bedrock"
+    } else {
+        val y = if (engine.dimension == Dimension.Overworld) options.biomeY else SeedEngine.SURFACE
+        engine.biomeName(engine.biomeAt(pos.x, pos.z, y))
+    }
+    val java = engine.edition == Edition.Java
+    val lines = ArrayList<String>()
+    var loot: List<String> = emptyList()
+    var ores: List<String> = emptyList()
+    var oreTitle: String? = null
+
+    when (picked) {
+        is Picked.Structure -> {
+            val kind = picked.kind
+            yLevelText(kind, picked.point)?.let(lines::add)
+            if (kind == StructureKind.Geode && picked.point.info and 0x100 != 0) lines += "Cracked: you can see it from a cave"
+            if (java && kind.hasVariants) lines += variantText(engine.variant(kind.id, pos.x, pos.z).first)
+            if (java && kind.hasLoot) engine.loot(kind.id, pos.x, pos.z)?.let { loot = lootLines(it) }
+        }
+        is Picked.Stronghold -> {
+            lines += STRONGHOLD_Y_TEXT
+            if (java) engine.loot(STRONGHOLD_ID, pos.x, pos.z)?.let { loot = lootLines(it) }
+        }
+        is Picked.Spawn -> Unit
+        is Picked.Point -> {
+            // Ravine floor here, if the ravine layer is on and this tile has one.
+            if (options.ravines && scale == RAVINE_SCALE) {
+                val size = CELLS * RAVINE_SCALE
+                val key = TileKey(RAVINE_SCALE, Math.floorDiv(pos.x, size), Math.floorDiv(pos.z, size))
+                val floor = tiles.get(key)?.ravineFloor
+                if (floor != null) {
+                    val y = floor[(pos.z - key.blockZ) * size + (pos.x - key.blockX)]
+                    if (y != SeedEngine.NO_RAVINE) lines += "Ravine here: floor at Y $y"
+                }
+            }
+            if (java && engine.dimension != Dimension.End) {
+                val found = engine.chunkOres(Math.floorDiv(pos.x, 16), Math.floorDiv(pos.z, 16)).orEmpty()
+                val nether = engine.dimension == Dimension.Nether
+                oreTitle = if (nether) "Ancient debris in this chunk" else "Diamond ore in this chunk"
+                ores = if (found.isEmpty()) {
+                    listOf("None")
+                } else {
+                    val sorted = found.sortedByDescending { it[1] }
+                    sorted.take(12).map { "X ${it[0]}, Y ${it[1]}, Z ${it[2]}" } +
+                        listOfNotNull(
+                            if (sorted.size > 12) "…and ${sorted.size - 12} more" else null,
+                            if (nether) null else "Some may be gone where a cave touches the ore.",
+                        )
+                }
+            }
+        }
+    }
+    return PickDetails(biome, lines, loot, ores, oreTitle, loading = false)
 }
 
 @Composable
