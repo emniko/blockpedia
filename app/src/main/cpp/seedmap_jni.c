@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "seedmap_core.h"
+#include "seedmap_features.h"
 #include "cubiomes/util.h"
 
 #define FN(name) Java_com_emniko_blockpedia_seed_SeedNative_##name
@@ -60,6 +61,16 @@ JNIEXPORT jint JNICALL FN(nativeClusters)(JNIEnv *env, jobject thiz, jlong h, ji
     int n = sm_clusters(H(h), layer, x0, z0, x1, z1, (int *) buf, len / 10);
     (*env)->ReleaseIntArrayElements(env, out, buf, 0);
     return n;
+}
+
+JNIEXPORT jboolean JNICALL FN(nativeSurface)(JNIEnv *env, jobject thiz, jlong h, jint x, jint z, jintArray out)
+{
+    (void) thiz;
+    int ground, top;
+    if (!sm_surface(H(h), x, z, &ground, &top)) return JNI_FALSE;
+    jint v[2] = { ground, top };
+    (*env)->SetIntArrayRegion(env, out, 0, 2, v);
+    return JNI_TRUE;
 }
 
 JNIEXPORT jint JNICALL FN(nativeVariant)(JNIEnv *env, jobject thiz, jlong h, jint type, jint x, jint z, jintArray yOut)

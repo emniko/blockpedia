@@ -247,49 +247,22 @@ val StructureKind.hasVariants: Boolean
     get() = this == StructureKind.Village || this == StructureKind.RuinedPortal ||
         this == StructureKind.NetherPortal || this == StructureKind.Igloo || this == StructureKind.EndCity
 
-/** Where to dig: exact Y when known, otherwise heights documented on the Minecraft Wiki. */
-fun yLevelText(kind: StructureKind, point: MapPoint): String? = when (kind) {
-    StructureKind.AncientCity -> "Floor at Y -51"
-    StructureKind.TrialChambers -> "Start room at Y -40 to -20; most rooms between Y -20 and 0"
-    StructureKind.Mineshaft -> "Underground (often at the surface in badlands)"
-    StructureKind.Geode -> point.y?.let { "Geode at about Y $it" }
-    StructureKind.Dungeon -> point.y?.let { "Spawner at Y $it" }
-    StructureKind.LavaPool -> point.y?.let { "Lava at about Y $it" }
-    StructureKind.Fossil, StructureKind.NetherFossil -> point.y?.let { "Bottom of the fossil at Y $it" }
-    StructureKind.Cave -> point.box?.let { "Open from Y ${it[1]} to ${it[4] + 8}; deepest part around Y ${point.y}" }
-    StructureKind.CopperVein, StructureKind.IronVein -> point.box?.let { "Runs from Y ${it[1]} to ${it[4] + 8}" }
-    else -> null
+/** Y for the coordinates line: the exact height when known, or the documented range. */
+fun yText(kind: StructureKind, point: MapPoint): String? {
+    point.box?.let { return "${it[1]} to ${it[4] + 8}" }
+    point.y?.let { return it.toString() }
+    return when (kind) {
+        StructureKind.AncientCity -> "-51"
+        StructureKind.TrialChambers -> "-40 to -20"
+        else -> null
+    }
 }
 
-/** Extra facts about a point or area feature, from its native info value. */
-fun featureFacts(kind: StructureKind, point: MapPoint, biomeName: (Int) -> String): List<String> = buildList {
-    val info = point.info
-    when (kind) {
-        StructureKind.Dungeon -> {
-            add("Spawner: " + when (info) { 0 -> "skeleton"; 1 -> "zombie"; else -> "spider" })
-            add("Up to two chests. Found by simulating the caves, so a few may differ in game.")
-        }
-        StructureKind.LavaPool -> add(if (info == 1) "On the surface" else "Underground, often inside a cave")
-        StructureKind.Fossil -> {
-            add(if (info and 0x7 < 4) "Spine" else "Skull")
-            add(if (info shr 8 == 1) "Deep fossil: may contain diamond ore" else "May contain coal ore")
-        }
-        StructureKind.NetherFossil -> add("In a soul sand valley")
-        StructureKind.Cave -> {
-            point.box?.let { add("Spans X ${it[0]} to ${it[3] + 8}, Z ${it[2]} to ${it[5] + 8}") }
-            add("Biome at the deepest part: " + biomeName(info ushr 16))
-            add("Size: about ${(info and 0xFFFF) * 512} cubic blocks of open space")
-        }
-        StructureKind.CopperVein, StructureKind.IronVein -> {
-            point.box?.let {
-                add("Spans X ${it[0]} to ${it[3] + 8}, Z ${it[2]} to ${it[5] + 8}")
-                val len = maxOf(it[3] - it[0], it[4] - it[1], it[5] - it[2]) + 8
-                add("About $len blocks long, with " + (if (kind == StructureKind.CopperVein) "granite" else "tuff") +
-                    " and the odd raw ore block")
-            }
-        }
-        else -> {}
-    }
+/** Depth hints for structures whose height isn't known exactly. */
+fun depthHint(kind: StructureKind): String? = when (kind) {
+    StructureKind.TrialChambers -> "Most rooms between Y -20 and 0"
+    StructureKind.Mineshaft -> "Underground (often at the surface in badlands)"
+    else -> null
 }
 
 const val STRONGHOLD_Y_TEXT = "Underground, at any height"

@@ -535,3 +535,13 @@ int sm_veins(SeedMap *sm, OreVeinParameters *ov, int iron, int x0, int z0, int x
     }
     return n;
 }
+
+int sm_surface(SeedMap *sm, int x, int z, int *ground, int *top)
+{
+    if (sm->edition != SM_JAVA || sm->dim != DIM_OVERWORLD || sm->mc < MC_1_18) return 0;
+    World *w = world_for(sm);
+    if (!w) return 0;
+    *ground = world_height(w, x, z, 0);
+    *top = world_height(w, x, z, 1);
+    return 1;
+}

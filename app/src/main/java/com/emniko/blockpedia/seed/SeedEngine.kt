@@ -87,6 +87,12 @@ class SeedEngine(val config: SeedConfig, val dimension: Dimension = Dimension.Ov
         return points(layer, chunkX * 16, chunkZ * 16, chunkX * 16 + 16, chunkZ * 16 + 16)
     }
 
+    /** Standing height at (x, z): (ground, top); top is above ground where water or lava covers it. */
+    suspend fun surface(x: Int, z: Int): Pair<Int, Int>? = use { handle ->
+        val out = IntArray(2)
+        if (SeedNative.nativeSurface(handle, x, z, out)) out[0] to out[1] else null
+    }
+
     /** Variant flags (see [variantText]) and Y if known. */
     suspend fun variant(structureId: Int, x: Int, z: Int): Pair<Int, Int?> = use { handle ->
         val y = IntArray(1)

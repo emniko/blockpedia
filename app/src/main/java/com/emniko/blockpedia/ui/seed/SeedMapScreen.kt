@@ -112,7 +112,8 @@ import com.emniko.blockpedia.seed.featureFacts
 import com.emniko.blockpedia.seed.hasLoot
 import com.emniko.blockpedia.seed.hasVariants
 import com.emniko.blockpedia.seed.variantText
-import com.emniko.blockpedia.seed.yLevelText
+import com.emniko.blockpedia.seed.depthHint
+import com.emniko.blockpedia.seed.yText
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -172,6 +173,15 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
     // Everything starts hidden; the Layers sheet turns kinds on.
     val enabled = MutableStateFlow<Set<StructureKind>>(emptySet())
     val showSlime = MutableStateFlow(false)
+
+    private val prefs = appContext.getSharedPreferences("seedmap", Context.MODE_PRIVATE)
+    /** Spawners, variants, loot, ores and other extras on the tap card (off: name, coordinates, biome). */
+    val showDetails = MutableStateFlow(prefs.getBoolean("details", false))
+
+    fun setShowDetails(on: Boolean) {
+        showDetails.value = on
+        prefs.edit().putBoolean("details", on).apply()
+    }
     val showStrongholds = MutableStateFlow(false)
 
     /** Wiki structure icons for the map canvas, by URL. Markers show letters until they load. */
@@ -222,6 +232,9 @@ private data class Marker(val kind: StructureKind, val point: MapPoint, val appl
 /** Extra facts about a tapped spot, loaded after the tap. */
 private data class PickDetails(
     val biome: String? = null,
+    /** Y for the coordinates line, and the sea floor when the spot is under water or lava. */
+    val y: String? = null,
+    val floor: Int? = null,
     val lines: List<String> = emptyList(),
     val loot: List<String> = emptyList(),
     val ores: List<String> = emptyList(),
@@ -252,6 +265,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     val strongholds by vm.strongholds.collectAsState()
     val enabled by vm.enabled.collectAsState()
     val showSlime by vm.showSlime.collectAsState()
+    val showDetails by vm.showDetails.collectAsState()
     val showStrongholds by vm.showStrongholds.collectAsState()
     val tiles = vm.tiles
     val options = tiles.options
@@ -361,11 +375,11 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
 
     // Biome, Y levels, variants, chest loot and ores for a tapped spot.
     var details by remember { mutableStateOf(PickDetails()) }
-    LaunchedEffect(picked, engine, tiles) {
+    LaunchedEffect(picked, engine, tiles, showDetails) {
         val p = picked ?: return@LaunchedEffect
         details = PickDetails()
         details = try {
-            loadDetails(engine, p, options, tiles, scaleFor(bpp))
+            loadDetails(engine, p, options, tiles, scaleFor(bpp), showDetails)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -686,6 +700,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                     picked = p,
                     details = details,
                     dimension = dimension,
+                    showDetails = showDetails,
                     onClose = { picked = null },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -726,13 +741,14 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                     TextButton(onClick = { vm.setEnabled(emptySet()) }) { Text("Hide all") }
                 }
                 Text(
-                    "Small features appear as you zoom in. Tap any spot to see its diamonds (or ancient debris in the Nether).",
+                    "Small features appear as you zoom in. Tap any spot for its height; turn on more details below to see its diamonds (or ancient debris in the Nether).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (dimension == Dimension.Overworld) {
                     LayerSwitch("Slime chunks", showSlime) { vm.showSlime.value = it }
                 }
+                LayerSwitch("More details when tapping (spawners, loot, diamonds)", showDetails) { vm.setShowDetails(it) }
                 if (dimension == Dimension.Overworld && engine.showsBiomes) {
                     Text("Biome height", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     val heights = listOf("Surface" to SeedEngine.SURFACE, "Caves (Y 0)" to 0, "Deep (Y -51)" to -51)
@@ -851,7 +867,14 @@ private fun LayerSwitch(label: String, checked: Boolean, onChange: (Boolean) -> 
 }
 
 @Composable
-private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimension, onClose: () -> Unit, modifier: Modifier = Modifier) {
+private fun PickedCard(
+    picked: Picked,
+    details: PickDetails,
+    dimension: Dimension,
+    showDetails: Boolean,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val title = when (picked) {
         is Picked.Structure -> labelFor(picked.kind, picked.point)
         is Picked.Stronghold -> "Stronghold"
@@ -883,7 +906,7 @@ private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimensio
             ) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    "X ${picked.pos.x}, Z ${picked.pos.z}",
+                    "X ${picked.pos.x}, " + (details.y?.let { "Y $it, " } ?: "") + "Z ${picked.pos.z}",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
@@ -891,6 +914,7 @@ private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimensio
                 Text(
                     buildString {
                         append(details.biome ?: "…")
+                        details.floor?.let { append(" · Under water, floor at Y $it") }
                         when (dimension) {
                             Dimension.Overworld -> append(" · Nether X ${Math.floorDiv(picked.pos.x, 8)}, Z ${Math.floorDiv(picked.pos.z, 8)}")
                             Dimension.Nether -> append(" · Overworld X ${picked.pos.x * 8}, Z ${picked.pos.z * 8}")
@@ -905,7 +929,7 @@ private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimensio
                     is Picked.Stronghold -> STRONGHOLD_SPAWNERS
                     else -> null
                 }
-                if (spawnerText != null) DetailLine(spawnerText, emphasis = true)
+                if (showDetails && spawnerText != null) DetailLine(spawnerText, emphasis = true)
                 details.lines.forEach { DetailLine(it) }
                 if (details.loot.isNotEmpty()) {
                     DetailHeader("Chest loot")
@@ -968,6 +992,13 @@ private fun lootLines(text: String): List<String> {
     }
 }
 
+/** Structures that sit on the ground, so the surface height is their Y. */
+private val SURFACE_KINDS = setOf(
+    StructureKind.Village, StructureKind.Outpost, StructureKind.DesertTemple, StructureKind.JungleTemple,
+    StructureKind.WitchHut, StructureKind.Igloo, StructureKind.Mansion, StructureKind.AbandonedCamp,
+    StructureKind.DesertWell,
+)
+
 /** Ore blocks grouped into touching clusters, biggest (then highest) first. */
 private fun oreVeins(blocks: List<IntArray>): List<List<IntArray>> {
     val left = blocks.toMutableList()
@@ -997,6 +1028,7 @@ private suspend fun loadDetails(
     options: MapOptions,
     tiles: MapTiles,
     scale: Int,
+    full: Boolean,
 ): PickDetails {
     val pos = picked.pos
     val biome = if (!engine.showsBiomes) {
@@ -1011,10 +1043,14 @@ private suspend fun loadDetails(
     var ores: List<String> = emptyList()
     var oreTitle: String? = null
 
+    var yLine: String? = null
+    var floor: Int? = null
     when (picked) {
         is Picked.Structure -> {
             val kind = picked.kind
-            yLevelText(kind, picked.point)?.let(lines::add)
+            yLine = yText(kind, picked.point)
+                ?: if (kind in SURFACE_KINDS) engine.surface(pos.x, pos.z)?.second?.toString() else null
+            depthHint(kind)?.let(lines::add)
             if (kind == StructureKind.Geode && picked.point.info and 0x100 != 0) lines += "Cracked: you can see it from a cave"
             lines += featureFacts(kind, picked.point) { engine.biomeName(it) }
             if (java && kind.hasVariants) lines += variantText(engine.variant(kind.id, pos.x, pos.z).first)
@@ -1024,8 +1060,18 @@ private suspend fun loadDetails(
             lines += STRONGHOLD_Y_TEXT
             if (java) engine.loot(STRONGHOLD_ID, pos.x, pos.z)?.let { loot = lootLines(it) }
         }
-        is Picked.Spawn -> Unit
+        is Picked.Spawn -> {
+            engine.surface(pos.x, pos.z)?.let { (ground, top) ->
+                yLine = top.toString()
+                if (top > ground) floor = ground
+            }
+        }
         is Picked.Point -> {
+            // Where a player would stand here.
+            engine.surface(pos.x, pos.z)?.let { (ground, top) ->
+                yLine = top.toString()
+                if (top > ground) floor = ground
+            }
             // Ravine floor here, if the ravine layer is on and this tile has one.
             if (options.ravines && scale == RAVINE_SCALE) {
                 val size = CELLS * RAVINE_SCALE
@@ -1059,7 +1105,11 @@ private suspend fun loadDetails(
             }
         }
     }
-    return PickDetails(biome, lines, loot, ores, oreTitle, loading = false)
+    return if (full) {
+        PickDetails(biome, yLine, floor, lines, loot, ores, oreTitle, loading = false)
+    } else {
+        PickDetails(biome, yLine, floor, loading = false)
+    }
 }
 
 @Composable

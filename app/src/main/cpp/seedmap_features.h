@@ -21,4 +21,8 @@ int sm_caves(SeedMap *sm, int x0, int z0, int x1, int z1, int *out, int maxItems
 /* Copper (iron = 0) or iron ore veins, same layout as sm_caves; info = cells | ore cells << 16. */
 int sm_veins(SeedMap *sm, OreVeinParameters *ov, int iron, int x0, int z0, int x1, int z1, int *out, int maxItems);
 
+/* Where a player would stand at (x, z): one above the highest solid block (ground), and one above
+ * the highest non-air block (top; above ground when there is water or lava). 0 if not modelled. */
+int sm_surface(SeedMap *sm, int x, int z, int *ground, int *top);
+
 #endif
