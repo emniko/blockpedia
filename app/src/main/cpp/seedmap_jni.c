@@ -50,6 +50,18 @@ JNIEXPORT jint JNICALL FN(nativePoints)(JNIEnv *env, jobject thiz, jlong h, jint
     return n;
 }
 
+JNIEXPORT jint JNICALL FN(nativeClusters)(JNIEnv *env, jobject thiz, jlong h, jint layer,
+                                          jint x0, jint z0, jint x1, jint z1, jintArray out)
+{
+    (void) thiz;
+    jsize len = (*env)->GetArrayLength(env, out);
+    jint *buf = (*env)->GetIntArrayElements(env, out, NULL);
+    if (!buf) return -1;
+    int n = sm_clusters(H(h), layer, x0, z0, x1, z1, (int *) buf, len / 10);
+    (*env)->ReleaseIntArrayElements(env, out, buf, 0);
+    return n;
+}
+
 JNIEXPORT jint JNICALL FN(nativeVariant)(JNIEnv *env, jobject thiz, jlong h, jint type, jint x, jint z, jintArray yOut)
 {
     (void) thiz;

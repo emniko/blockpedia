@@ -49,12 +49,22 @@ class SeedEngine(val config: SeedConfig, val dimension: Dimension = Dimension.Ov
     suspend fun biomeAt(x: Int, z: Int, y: Int = SURFACE): Int = use { SeedNative.nativeBiomeAt(it, x, z, y) }
 
     /** Structures or point layers of [kind] in [x0, x1) x [z0, z1). Null if unsupported here. */
-    suspend fun features(kind: StructureKind, x0: Int, z0: Int, x1: Int, z1: Int): List<MapPoint>? =
-        if (kind.pointLayer == 0) {
-            structures(kind, x0, z0, x1, z1)?.map { MapPoint(it) }
-        } else {
-            points(kind.pointLayer, x0, z0, x1, z1)?.map { MapPoint(Pos(it[0], it[2]), it[1].takeIf { y -> y != Int.MIN_VALUE }, it[3]) }
+    suspend fun features(kind: StructureKind, x0: Int, z0: Int, x1: Int, z1: Int): List<MapPoint>? = when {
+        kind.clusterLayer != 0 -> clusters(kind.clusterLayer, x0, z0, x1, z1)?.map {
+            MapPoint(Pos(it[0], it[2]), it[1], it[9], it.copyOfRange(3, 9))
         }
+        kind.pointLayer != 0 -> points(kind.pointLayer, x0, z0, x1, z1)?.map {
+            MapPoint(Pos(it[0], it[2]), it[1].takeIf { y -> y != Int.MIN_VALUE }, it[3])
+        }
+        else -> structures(kind, x0, z0, x1, z1)?.map { MapPoint(it) }
+    }
+
+    /** Raw 10-int groups (reference x, y, z; min x, y, z; max x, y, z; info) from a native area layer. */
+    suspend fun clusters(layer: Int, x0: Int, z0: Int, x1: Int, z1: Int): List<IntArray>? = use { handle ->
+        val buf = IntArray(10 * 2048)
+        val n = SeedNative.nativeClusters(handle, layer, x0, z0, x1, z1, buf)
+        if (n < 0) null else List(n) { buf.copyOfRange(10 * it, 10 * it + 10) }
+    }
 
     /** Raw (x, y, z, info) groups from a native point layer. */
     suspend fun points(layer: Int, x0: Int, z0: Int, x1: Int, z1: Int): List<IntArray>? = use { handle ->

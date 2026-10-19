@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -104,6 +105,7 @@ import com.emniko.blockpedia.seed.RAVINE_SCALE
 import com.emniko.blockpedia.seed.STRONGHOLD_ID
 import com.emniko.blockpedia.seed.STRONGHOLD_Y_TEXT
 import com.emniko.blockpedia.seed.canHaveApples
+import com.emniko.blockpedia.seed.featureFacts
 import com.emniko.blockpedia.seed.hasLoot
 import com.emniko.blockpedia.seed.hasVariants
 import com.emniko.blockpedia.seed.variantText
@@ -134,11 +136,19 @@ private const val TAP_RADIUS_DP = 24
 
 class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel() {
     /** Replaced when the map options change, which starts a fresh tile cache. */
-    var tiles by mutableStateOf(MapTiles(engine, viewModelScope, MapOptions()))
+    var tiles by mutableStateOf(
+        MapTiles(engine, viewModelScope, MapOptions(heavy = StructureKind.forWorld(engine.edition, engine.dimension).filter { it.heavy }.toSet()))
+    )
         private set
 
     fun setOptions(options: MapOptions) {
         if (options != tiles.options) tiles = MapTiles(engine, viewModelScope, options)
+    }
+
+    /** Shows [kinds]; slow layers are only computed while shown. */
+    fun setEnabled(kinds: Set<StructureKind>) {
+        enabled.value = kinds
+        setOptions(tiles.options.copy(heavy = kinds.filter { it.heavy }.toSet()))
     }
 
     val spawn = MutableStateFlow<Pos?>(null)
@@ -542,8 +552,19 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                     drawCircle(Color(0xFF1B1B1B), r * 1.2f, c, style = Stroke(1.5.dp.toPx()))
                 }
 
-                // Selection ring.
+                // Selection ring, and the outline of a selected cave or ore vein.
                 picked?.let { p ->
+                    val box = (p as? Picked.Structure)?.point?.box
+                    if (box != null) {
+                        val a = worldToScreen(box[0].toDouble(), box[2].toDouble())
+                        val b = worldToScreen(box[3] + 8.0, box[5] + 8.0)
+                        drawRect(
+                            selectionColor,
+                            topLeft = a,
+                            size = Size(b.x - a.x, b.y - a.y),
+                            style = Stroke(2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
+                        )
+                    }
                     val c = worldToScreen(p.pos.x.toDouble(), p.pos.z.toDouble())
                     drawCircle(selectionColor, r * 2.1f, c, style = Stroke(3.dp.toPx()))
                 }
@@ -645,7 +666,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                         FilterChip(
                             selected = kind in enabled,
                             onClick = {
-                                vm.enabled.value = if (kind in enabled) enabled - kind else enabled + kind
+                                vm.setEnabled(if (kind in enabled) enabled - kind else enabled + kind)
                             },
                             label = { Text(kind.label) },
                             leadingIcon = { StructureIcon(kind.iconUrl, 18.dp) },
@@ -654,10 +675,10 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                 }
                 if (vm.kinds.any { it.spawners != null }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { vm.enabled.value = vm.kinds.filter { it.spawners != null }.toSet() }) {
+                        TextButton(onClick = { vm.setEnabled(vm.kinds.filter { it.spawners != null }.toSet()) }) {
                             Text("Only structures with spawners")
                         }
-                        TextButton(onClick = { vm.enabled.value = vm.kinds.toSet() }) { Text("Show all") }
+                        TextButton(onClick = { vm.setEnabled(vm.kinds.toSet()) }) { Text("Show all") }
                     }
                 }
                 Text(
@@ -906,6 +927,7 @@ private suspend fun loadDetails(
             val kind = picked.kind
             yLevelText(kind, picked.point)?.let(lines::add)
             if (kind == StructureKind.Geode && picked.point.info and 0x100 != 0) lines += "Cracked: you can see it from a cave"
+            lines += featureFacts(kind, picked.point) { engine.biomeName(it) }
             if (java && kind.hasVariants) lines += variantText(engine.variant(kind.id, pos.x, pos.z).first)
             if (java && kind.hasLoot) engine.loot(kind.id, pos.x, pos.z)?.let { loot = lootLines(it) }
         }

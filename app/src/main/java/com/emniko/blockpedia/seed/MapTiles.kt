@@ -26,6 +26,8 @@ data class MapOptions(
     val terrain: Boolean = false,
     val ravines: Boolean = false,
     val apples: Boolean = false,
+    /** Slow layers ([StructureKind.heavy]) to compute; the others are always computed. */
+    val heavy: Set<StructureKind> = emptySet(),
 )
 
 class Tile(
@@ -109,6 +111,7 @@ class MapTiles(
         val apples = HashSet<Pos>()
         for (kind in kinds) {
             if (key.scale > kind.maxScale) continue
+            if (kind.heavy && kind !in options.heavy) continue
             val found = engine.features(kind, x0, z0, x0 + key.blockSize, z0 + key.blockSize) ?: continue
             if (found.isEmpty()) continue
             features[kind] = found

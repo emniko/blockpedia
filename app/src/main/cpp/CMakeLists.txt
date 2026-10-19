@@ -13,6 +13,8 @@ file(GLOB_RECURSE LOOT_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cubiomes/loot/*.c)
 add_library(seedmap SHARED
     seedmap_core.c
     seedmap_layers.c
+    seedmap_world.c
+    seedmap_features.c
     seedmap_jni.c
     ${CUBIOMES_SOURCES}
     ${LOOT_SOURCES}

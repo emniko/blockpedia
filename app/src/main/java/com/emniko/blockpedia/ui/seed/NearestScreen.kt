@@ -84,6 +84,11 @@ private const val RESULTS = 10
 
 /** Search radii in blocks; dense small structures stop earlier to stay fast. */
 private fun radiiFor(kind: StructureKind): List<Int> = when {
+    // Simulated against the terrain: slow per block, but common.
+    kind == StructureKind.Dungeon -> listOf(128, 256, 512)
+    kind == StructureKind.Cave -> listOf(512, 1024)
+    kind.clusterLayer != 0 -> listOf(256, 512, 1024)
+    kind == StructureKind.Fossil -> listOf(1024, 2048, 4096)
     kind.maxScale <= 4 -> listOf(512, 1024, 2048)
     kind.maxScale <= 16 -> listOf(1024, 4096, 8192)
     else -> listOf(2048, 8192, 16384, 32768)

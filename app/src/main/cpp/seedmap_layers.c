@@ -3,6 +3,8 @@
  * structure variants, ravine footprints and approximate terrain height.
  */
 #include "seedmap_internal.h"
+#include "seedmap_features.h"
+#include "seedmap_world.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -48,6 +50,7 @@ static TerrainNoise *terrain(SeedMap *sm)
 
 void sm_free_layers(SeedMap *sm)
 {
+    world_free(sm->world);
     free(sm->oreVeins);
     free(sm->surface);
     free(sm->terrain);
@@ -83,7 +86,9 @@ static void chunk_features(SeedMap *sm, int stype, int cx0, int cz0, int cx1, in
                 StructureVariant sv;
                 memset(&sv, 0, sizeof sv);
                 if (getVariant(&sv, Geode, sm->mc, sm->seed, p.x, p.z, -1)) {
-                    y = sv.y;
+                    /* Middle of the geode: getStructurePos is 5 blocks into it, cubiomes' Y too high. */
+                    p.x += 4; p.z += 4;
+                    y = sv.y - 1;
                     info = sv.size | (sv.cracked ? 0x100 : 0);
                 }
             }
@@ -92,30 +97,41 @@ static void chunk_features(SeedMap *sm, int stype, int cx0, int cz0, int cx1, in
     }
 }
 
-/* Copper or iron ore veins: sample a few columns per chunk through the vein's height range and
- * report the first ore block found. info = 1 when it is a raw ore block. */
-static void ore_vein_points(SeedMap *sm, int iron, int cx0, int cz0, int cx1, int cz1, Sink *s)
+/* Nether fossils (soul sand valleys) with their height and whether they hold a dried ghast. */
+static void nether_fossils(SeedMap *sm, int cx0, int cz0, int cx1, int cz1, Sink *s)
 {
-    OreVeinParameters *ov = ore_veins(sm);
-    if (!ov) return;
-    const int minY = iron ? -60 : 0, maxY = iron ? -8 : 50;
-    const int ore = iron ? IRON_ORE : COPPER_ORE, raw = iron ? RAW_IRON_BLOCK : RAW_COPPER_BLOCK;
-    static const int offs[4][2] = { {3, 3}, {11, 3}, {3, 11}, {11, 11} };
-    for (int cz = cz0; cz <= cz1; cz++) {
-        for (int cx = cx0; cx <= cx1; cx++) {
-            int found = 0;
-            for (int k = 0; k < 4 && !found; k++) {
-                int x = cx * 16 + offs[k][0], z = cz * 16 + offs[k][1];
-                for (int y = minY; y <= maxY && !found; y += 3) {
-                    int b = getOreVeinBlockAt(x, y, z, ov);
-                    if (b == ore || b == raw) {
-                        found = 1;
-                        if (!put(s, x, y, z, b == raw)) return;
-                    }
-                }
-            }
+    StructureConfig sc;
+    if (!getStructureConfig(Nether_Fossil, sm->mc, &sc)) return;
+    TerrainNoise *tn = terrain(sm);
+    if (!tn) return;
+    int rs = sc.regionSize;
+    for (int rz = floordiv(cz0, rs); rz <= floordiv(cz1, rs); rz++) {
+        for (int rx = floordiv(cx0, rs); rx <= floordiv(cx1, rs); rx++) {
+            Pos p;
+            if (!getStructurePos(Nether_Fossil, sm->mc, sm->seed, rx, rz, &p)) continue;
+            int cx = p.x >> 4, cz = p.z >> 4;
+            if (cx < cx0 || cx > cx1 || cz < cz0 || cz > cz1) continue;
+            if (!isViableStructurePos(Nether_Fossil, &sm->g, p.x, p.z, 0)) continue;
+            StructureVariant sv;
+            memset(&sv, 0, sizeof sv);
+            if (!getVariant(&sv, Nether_Fossil, sm->mc, sm->seed, p.x, p.z, -1)) continue;
+            if (!isViableNetherFossilTerrain(cx, cz, &sv, &tn->base3dNoise, sm->mc)) continue;
+            int ghast = sm->mc >= MC_1_21_6 && netherFossilHasGhast(cx, cz, sm->seed, &sv);
+            if (!put(s, cx * 16 + sv.x, sv.y, cz * 16 + sv.z, sv.start | (ghast ? 0x100 : 0))) return;
         }
     }
+}
+
+/* Features from seedmap_features.c, which report whole chunks. */
+static void feature_points(SeedMap *sm, int layer, int cx0, int cz0, int cx1, int cz1, Sink *s)
+{
+    int n;
+    switch (layer) {
+    case SMP_DUNGEON: n = sm_dungeons(sm, cx0, cz0, cx1, cz1, s->out + 4 * s->n, s->max - s->n); break;
+    case SMP_LAVA_LAKE: n = sm_lava_lakes(sm, cx0, cz0, cx1, cz1, s->out + 4 * s->n, s->max - s->n); break;
+    default: n = sm_fossils(sm, cx0, cz0, cx1, cz1, s->out + 4 * s->n, s->max - s->n); break;
+    }
+    if (n > 0) s->n += n;
 }
 
 /* Ore blocks from decoration (diamonds, ancient debris): every block position, info = ore type.
@@ -161,10 +177,15 @@ int sm_points(SeedMap *sm, int layer, int x0, int z0, int x1, int z1, int *out, 
         if (sm->dim != DIM_END) return -1;
         chunk_features(sm, End_Gateway, cx0, cz0, cx1, cz1, &s);
         break;
-    case SMP_COPPER_VEIN:
-    case SMP_IRON_VEIN:
-        if (sm->dim != DIM_OVERWORLD) return -1;
-        ore_vein_points(sm, layer == SMP_IRON_VEIN, cx0, cz0, cx1, cz1, &s);
+    case SMP_DUNGEON:
+    case SMP_LAVA_LAKE:
+    case SMP_FOSSIL:
+        if (sm->dim != DIM_OVERWORLD || sm->mc < MC_1_18) return -1;
+        feature_points(sm, layer, cx0, cz0, cx1, cz1, &s);
+        break;
+    case SMP_NETHER_FOSSIL:
+        if (sm->dim != DIM_NETHER) return -1;
+        nether_fossils(sm, cx0, cz0, cx1, cz1, &s);
         break;
     case SMP_DIAMOND: {
         if (sm->dim != DIM_OVERWORLD) return -1;
@@ -182,6 +203,17 @@ int sm_points(SeedMap *sm, int layer, int x0, int z0, int x1, int z1, int *out, 
         return -1;
     }
     return s.n;
+}
+
+int sm_clusters(SeedMap *sm, int layer, int x0, int z0, int x1, int z1, int *out, int maxItems)
+{
+    if (sm->edition != SM_JAVA || sm->dim != DIM_OVERWORLD || sm->mc < MC_1_18) return -1;
+    switch (layer) {
+    case SMC_CAVE: return sm_caves(sm, x0, z0, x1, z1, out, maxItems);
+    case SMC_COPPER_VEIN: return sm_veins(sm, ore_veins(sm), 0, x0, z0, x1, z1, out, maxItems);
+    case SMC_IRON_VEIN: return sm_veins(sm, ore_veins(sm), 1, x0, z0, x1, z1, out, maxItems);
+    default: return -1;
+    }
 }
 
 /* ------------------------------------------------------------------ variants */

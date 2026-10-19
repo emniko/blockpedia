@@ -55,15 +55,30 @@ enum {
     SMP_GEODE = 1,      /* y = geode Y, info = size | 0x100 if cracked */
     SMP_DESERT_WELL,
     SMP_END_GATEWAY,
-    SMP_COPPER_VEIN,    /* info = 1 for a raw copper block */
-    SMP_IRON_VEIN,
+    SMP_UNUSED_4,       /* ore veins moved to sm_clusters */
+    SMP_UNUSED_5,
     SMP_DIAMOND,        /* every diamond ore block (meant for one chunk at a time) */
     SMP_DEBRIS,         /* every ancient debris block (Nether) */
+    SMP_DUNGEON,        /* info = spawner mob: 0 skeleton, 1 zombie, 2 spider */
+    SMP_LAVA_LAKE,      /* info = 0 underground, 1 surface */
+    SMP_FOSSIL,         /* info = (0 upper/coal, 1 lower/diamond) << 8 | shape 0-7 */
+    SMP_NETHER_FOSSIL,  /* info = shape 0-13 | 0x100 with a dried ghast */
 };
 
 /* Point features in [x0, x1) x [z0, z1). Writes (x, y, z, info) groups; y is INT_MIN when
  * unknown. Returns the count, or -1 when the layer isn't available here. */
 int sm_points(SeedMap *sm, int layer, int x0, int z0, int x1, int z1, int *out, int maxItems);
+
+enum {
+    SMC_CAVE = 1,       /* cheese caves; info = grid cells | biome << 16 */
+    SMC_COPPER_VEIN,    /* info = grid cells | cells that can hold ore << 16 */
+    SMC_IRON_VEIN,
+};
+
+/* Area features in [x0, x1) x [z0, z1), each reported by the tile holding its reference point.
+ * Writes 10 ints per item: reference x, y, z; min x, y, z; max x, y, z; info. Returns the count,
+ * or -1 when the layer isn't available here. */
+int sm_clusters(SeedMap *sm, int layer, int x0, int z0, int x1, int z1, int *out, int maxItems);
 
 #define SMV_ZOMBIE_VILLAGE 1
 #define SMV_GIANT_PORTAL   2

@@ -21,6 +21,7 @@ struct SeedMap {
     OreVeinParameters *oreVeins;
     SurfaceNoise *surface;
     TerrainNoise *terrain;
+    struct World *world;
 };
 
 void sm_free_layers(SeedMap *sm);

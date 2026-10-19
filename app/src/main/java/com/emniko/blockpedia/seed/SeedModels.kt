@@ -93,6 +93,8 @@ enum class StructureKind(
     val bedrock: Boolean = true,
     /** Non-zero for point layers computed by the native layer code (SMP_* ids) instead of a structure id. */
     val pointLayer: Int = 0,
+    /** Non-zero for area features (SMC_* ids): caves and ore veins, with a bounding box. */
+    val clusterLayer: Int = 0,
 ) {
     Village(5, "Village", 'V', 0xFFF4B740, 64),
     Outpost(10, "Pillager outpost", 'P', 0xFF9E9E9E, 64),
@@ -123,11 +125,20 @@ enum class StructureKind(
     Geode(-1, "Amethyst geode", 'G', 0xFFB39DDB, 4, bedrock = false, pointLayer = 1),
     DesertWell(-1, "Desert well", 'L', 0xFFE6D3A3, 16, bedrock = false, pointLayer = 2),
     EndGateway(-1, "End gateway", 'Y', 0xFF80DEEA, 16, Dimension.End, bedrock = false, pointLayer = 3),
-    CopperVein(-1, "Copper ore vein", 'U', 0xFFE07A4F, 4, bedrock = false, pointLayer = 4),
-    IronVein(-1, "Iron ore vein", 'N', 0xFFD8AF93, 4, bedrock = false, pointLayer = 5),
+    // Checked against simulated terrain, caves and aquifers, so a few can differ from the game.
+    Dungeon(-1, "Dungeon", 'Q', 0xFF78909C, 4, bedrock = false, pointLayer = 8),
+    LavaPool(-1, "Lava pool", 'A', 0xFFFF7043, 16, bedrock = false, pointLayer = 9),
+    Fossil(-1, "Fossil", 'F', 0xFFEFEBE9, 16, bedrock = false, pointLayer = 10),
+    NetherFossil(-1, "Nether fossil", 'F', 0xFFEFEBE9, 16, Dimension.Nether, bedrock = false, pointLayer = 11),
+    Cave(-1, "Cheese cave", 'C', 0xFF90A4AE, 4, bedrock = false, clusterLayer = 1),
+    CopperVein(-1, "Copper ore vein", 'U', 0xFFE07A4F, 16, bedrock = false, clusterLayer = 2),
+    IronVein(-1, "Iron ore vein", 'N', 0xFFD8AF93, 16, bedrock = false, clusterLayer = 3),
     ;
 
     fun availableIn(edition: Edition): Boolean = if (edition == Edition.Java) java else bedrock
+
+    /** Simulated against the terrain, so only computed while shown. */
+    val heavy: Boolean get() = this == Dungeon || this == Cave
 
     companion object {
         fun forEdition(edition: Edition): List<StructureKind> = entries.filter { it.availableIn(edition) }
@@ -166,14 +177,27 @@ val StructureKind.iconUrl: String
         StructureKind.Geode -> "EnvSprite_amethyst-geode.png"
         StructureKind.DesertWell -> "EnvSprite_desert-well.png"
         StructureKind.EndGateway -> "EnvSprite_end-gateway.png"
+        StructureKind.Dungeon -> "EnvSprite_dungeon.png"
+        StructureKind.LavaPool -> "EnvSprite_lava-lake.png"
+        StructureKind.Fossil -> "EnvSprite_fossil.png"
+        StructureKind.NetherFossil -> "EnvSprite_nether-fossil.png"
+        StructureKind.Cave -> "EnvSprite_cheese-cave.png"
         StructureKind.CopperVein -> "BlockSprite_block-of-raw-copper.png"
         StructureKind.IronVein -> "BlockSprite_block-of-raw-iron.png"
     }
 
 const val APPLE_ICON_URL = WIKI_IMAGES + "ItemSprite_enchanted-golden-apple.png"
 
-/** A map feature: a structure (y unknown) or a point layer with a Y level and extra info. */
-data class MapPoint(val pos: Pos, val y: Int? = null, val info: Int = 0)
+/**
+ * A map feature: a structure (y unknown), a point layer with a Y level and extra info, or an area
+ * (cave, ore vein) whose [box] holds min x, y, z and max x, y, z.
+ */
+data class MapPoint(val pos: Pos, val y: Int? = null, val info: Int = 0, val box: IntArray? = null) {
+    override fun equals(other: Any?): Boolean =
+        other is MapPoint && pos == other.pos && y == other.y && info == other.info && box.contentEquals(other.box)
+
+    override fun hashCode(): Int = ((pos.hashCode() * 31 + (y ?: 0)) * 31 + info) * 31 + box.contentHashCode()
+}
 
 /** cubiomes' structure id for strongholds (loot lookups). */
 const val STRONGHOLD_ID = 27
@@ -202,9 +226,43 @@ fun yLevelText(kind: StructureKind, point: MapPoint): String? = when (kind) {
     StructureKind.TrialChambers -> "Start room at Y -40 to -20; most rooms between Y -20 and 0"
     StructureKind.Mineshaft -> "Underground (often at the surface in badlands)"
     StructureKind.Geode -> point.y?.let { "Geode at about Y $it" }
-    StructureKind.CopperVein -> point.y?.let { "Copper ore found at Y $it (veins run from Y 0 to 50)" }
-    StructureKind.IronVein -> point.y?.let { "Iron ore found at Y $it (veins run from Y -60 to -8)" }
+    StructureKind.Dungeon -> point.y?.let { "Spawner at Y $it" }
+    StructureKind.LavaPool -> point.y?.let { "Lava at about Y $it" }
+    StructureKind.Fossil, StructureKind.NetherFossil -> point.y?.let { "Bottom of the fossil at Y $it" }
+    StructureKind.Cave -> point.box?.let { "Open from Y ${it[1]} to ${it[4] + 8}; deepest part around Y ${point.y}" }
+    StructureKind.CopperVein, StructureKind.IronVein -> point.box?.let { "Runs from Y ${it[1]} to ${it[4] + 8}" }
     else -> null
+}
+
+/** Extra facts about a point or area feature, from its native info value. */
+fun featureFacts(kind: StructureKind, point: MapPoint, biomeName: (Int) -> String): List<String> = buildList {
+    val info = point.info
+    when (kind) {
+        StructureKind.Dungeon -> {
+            add("Spawner: " + when (info) { 0 -> "skeleton"; 1 -> "zombie"; else -> "spider" })
+            add("Up to two chests. Found by simulating the caves, so a few may differ in game.")
+        }
+        StructureKind.LavaPool -> add(if (info == 1) "On the surface" else "Underground, often inside a cave")
+        StructureKind.Fossil -> {
+            add(if (info and 0x7 < 4) "Spine" else "Skull")
+            add(if (info shr 8 == 1) "Deep fossil: may contain diamond ore" else "May contain coal ore")
+        }
+        StructureKind.NetherFossil -> add("In a soul sand valley")
+        StructureKind.Cave -> {
+            point.box?.let { add("Spans X ${it[0]} to ${it[3] + 8}, Z ${it[2]} to ${it[5] + 8}") }
+            add("Biome at the deepest part: " + biomeName(info ushr 16))
+            add("Size: about ${(info and 0xFFFF) * 512} cubic blocks of open space")
+        }
+        StructureKind.CopperVein, StructureKind.IronVein -> {
+            point.box?.let {
+                add("Spans X ${it[0]} to ${it[3] + 8}, Z ${it[2]} to ${it[5] + 8}")
+                val len = maxOf(it[3] - it[0], it[4] - it[1], it[5] - it[2]) + 8
+                add("About $len blocks long, with " + (if (kind == StructureKind.CopperVein) "granite" else "tuff") +
+                    " and the odd raw ore block")
+            }
+        }
+        else -> {}
+    }
 }
 
 const val STRONGHOLD_Y_TEXT = "Underground, at any height"
@@ -229,6 +287,7 @@ val StructureKind.spawners: String?
         StructureKind.Bastion -> "Magma cube spawner, in treasure bastions only"
         StructureKind.NetherComplex -> "Blaze spawners if it's a fortress; magma cube spawner if it's a treasure bastion"
         StructureKind.TrialChambers -> "Trial spawners"
+        StructureKind.Dungeon -> "One monster spawner"
         else -> null
     }
 
