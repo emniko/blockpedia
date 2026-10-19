@@ -130,7 +130,7 @@ enum class StructureKind(
     LavaPool(-1, "Lava pool", 'A', 0xFFFF7043, 16, bedrock = false, pointLayer = 9),
     Fossil(-1, "Fossil", 'F', 0xFFEFEBE9, 16, bedrock = false, pointLayer = 10),
     NetherFossil(-1, "Nether fossil", 'F', 0xFFEFEBE9, 16, Dimension.Nether, bedrock = false, pointLayer = 11),
-    Cave(-1, "Cheese cave", 'C', 0xFF90A4AE, 4, bedrock = false, clusterLayer = 1),
+    Cave(-1, "Caves (cheese)", 'C', 0xFF90A4AE, 4, bedrock = false, clusterLayer = 1),
     CopperVein(-1, "Copper ore vein", 'U', 0xFFE07A4F, 16, bedrock = false, clusterLayer = 2),
     IronVein(-1, "Iron ore vein", 'N', 0xFFD8AF93, 16, bedrock = false, clusterLayer = 3),
     ;
@@ -187,6 +187,33 @@ val StructureKind.iconUrl: String
     }
 
 const val APPLE_ICON_URL = WIKI_IMAGES + "ItemSprite_enchanted-golden-apple.png"
+
+/** cubiomes biome ids of the cave biomes. */
+private const val DRIPSTONE_CAVES = 174
+private const val LUSH_CAVES = 175
+
+private val LUSH_CAVE_ICON_URL = WIKI_IMAGES + "BiomeSprite_lush-caves.png"
+private val DRIPSTONE_CAVE_ICON_URL = WIKI_IMAGES + "BiomeSprite_dripstone-caves.png"
+
+/** Extra icons some points use instead of their kind's (see [iconUrlFor]). */
+val VARIANT_ICON_URLS = listOf(LUSH_CAVE_ICON_URL, DRIPSTONE_CAVE_ICON_URL)
+
+/** Biome at a cave's deepest point (its info's high bits). */
+private fun caveBiome(point: MapPoint): Int = point.info ushr 16
+
+/** The icon for one point: caves show lush or dripstone caves when that is their biome. */
+fun iconUrlFor(kind: StructureKind, point: MapPoint): String = when {
+    kind == StructureKind.Cave && caveBiome(point) == LUSH_CAVES -> LUSH_CAVE_ICON_URL
+    kind == StructureKind.Cave && caveBiome(point) == DRIPSTONE_CAVES -> DRIPSTONE_CAVE_ICON_URL
+    else -> kind.iconUrl
+}
+
+/** The name for one point: "Lush cave", "Dripstone cave" or the kind's label. */
+fun labelFor(kind: StructureKind, point: MapPoint): String = when {
+    kind == StructureKind.Cave && caveBiome(point) == LUSH_CAVES -> "Lush cave"
+    kind == StructureKind.Cave && caveBiome(point) == DRIPSTONE_CAVES -> "Dripstone cave"
+    else -> kind.label
+}
 
 /**
  * A map feature: a structure (y unknown), a point layer with a Y level and extra info, or an area

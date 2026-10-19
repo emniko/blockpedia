@@ -73,7 +73,10 @@ import coil.request.SuccessResult
 import com.emniko.blockpedia.seed.STRONGHOLD_ICON_URL
 import com.emniko.blockpedia.seed.STRONGHOLD_SPAWNERS
 import com.emniko.blockpedia.seed.spawners
+import com.emniko.blockpedia.seed.VARIANT_ICON_URLS
 import com.emniko.blockpedia.seed.iconUrl
+import com.emniko.blockpedia.seed.iconUrlFor
+import com.emniko.blockpedia.seed.labelFor
 import kotlinx.coroutines.flow.update
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -175,7 +178,7 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
 
     init {
         val loader = appContext.imageLoader
-        val urls = (kinds.map { it.iconUrl } + STRONGHOLD_ICON_URL + APPLE_ICON_URL).distinct()
+        val urls = (kinds.map { it.iconUrl } + VARIANT_ICON_URLS + STRONGHOLD_ICON_URL + APPLE_ICON_URL).distinct()
         for (url in urls) {
             viewModelScope.launch {
                 val request = ImageRequest.Builder(appContext).data(url).allowHardware(false).build()
@@ -550,7 +553,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                 val appleIcon = icons[APPLE_ICON_URL]
                 for (m in markers) {
                     val c = worldToScreen(m.pos.x.toDouble(), m.pos.z.toDouble())
-                    val icon = icons[m.kind.iconUrl]
+                    val icon = icons[iconUrlFor(m.kind, m.point)] ?: icons[m.kind.iconUrl]
                     if (icon != null) {
                         drawIconMarker(icon, c, iconPx, backdrop, Color(0xB3000000))
                     } else {
@@ -849,7 +852,7 @@ private fun LayerSwitch(label: String, checked: Boolean, onChange: (Boolean) -> 
 @Composable
 private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimension, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val title = when (picked) {
-        is Picked.Structure -> picked.kind.label
+        is Picked.Structure -> labelFor(picked.kind, picked.point)
         is Picked.Stronghold -> "Stronghold"
         is Picked.Spawn -> "World spawn"
         is Picked.Point -> "Location"
@@ -862,7 +865,7 @@ private fun PickedCard(picked: Picked, details: PickDetails, dimension: Dimensio
     ) {
         Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.Top) {
             val iconUrl = when (picked) {
-                is Picked.Structure -> picked.kind.iconUrl
+                is Picked.Structure -> iconUrlFor(picked.kind, picked.point)
                 is Picked.Stronghold -> STRONGHOLD_ICON_URL
                 else -> null
             }
