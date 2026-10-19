@@ -146,33 +146,29 @@ private const val TAP_RADIUS_DP = 24
 
 class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel() {
     /** Replaced when the map options change, which starts a fresh tile cache. */
-    var tiles by mutableStateOf(
-        MapTiles(engine, viewModelScope, MapOptions(heavy = StructureKind.forWorld(engine.edition, engine.dimension).filter { it.heavy }.toSet()))
-    )
+    var tiles by mutableStateOf(MapTiles(engine, viewModelScope, MapOptions()))
         private set
 
     fun setOptions(options: MapOptions) {
         if (options == tiles.options) return
         tiles.close()
-        tiles = MapTiles(engine, viewModelScope, options)
+        tiles = MapTiles(engine, viewModelScope, options, enabled.value)
     }
 
-    /** Shows [kinds]; slow layers are only computed while shown. */
+    /** Shows [kinds]; only shown kinds are computed. */
     fun setEnabled(kinds: Set<StructureKind>) {
         enabled.value = kinds
-        setOptions(tiles.options.copy(heavy = kinds.filter { it.heavy }.toSet()))
+        tiles.setKinds(kinds)
     }
 
     val spawn = MutableStateFlow<Pos?>(null)
     val strongholds = MutableStateFlow<List<Pos>>(emptyList())
 
     val kinds = StructureKind.forWorld(engine.edition, engine.dimension)
-    // Buried treasure and mineshafts are very common, so they start hidden.
-    val enabled = MutableStateFlow(
-        kinds.filter { it != StructureKind.BuriedTreasure && it != StructureKind.Mineshaft }.toSet()
-    )
+    // Everything starts hidden; the Layers sheet turns kinds on.
+    val enabled = MutableStateFlow<Set<StructureKind>>(emptySet())
     val showSlime = MutableStateFlow(false)
-    val showStrongholds = MutableStateFlow(true)
+    val showStrongholds = MutableStateFlow(false)
 
     /** Wiki structure icons for the map canvas, by URL. Markers show letters until they load. */
     val icons = MutableStateFlow<Map<String, ImageBitmap>>(emptyMap())
@@ -716,13 +712,14 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                         )
                     }
                 }
-                if (vm.kinds.any { it.spawners != null }) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (vm.kinds.any { it.spawners != null }) {
                         TextButton(onClick = { vm.setEnabled(vm.kinds.filter { it.spawners != null }.toSet()) }) {
-                            Text("Only structures with spawners")
+                            Text("Only with spawners")
                         }
-                        TextButton(onClick = { vm.setEnabled(vm.kinds.toSet()) }) { Text("Show all") }
                     }
+                    TextButton(onClick = { vm.setEnabled(vm.kinds.toSet()) }) { Text("Show all") }
+                    TextButton(onClick = { vm.setEnabled(emptySet()) }) { Text("Hide all") }
                 }
                 Text(
                     "Small features appear as you zoom in. Tap any spot to see its diamonds (or ancient debris in the Nether).",

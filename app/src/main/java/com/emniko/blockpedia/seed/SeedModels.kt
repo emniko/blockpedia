@@ -137,7 +137,7 @@ enum class StructureKind(
 
     fun availableIn(edition: Edition): Boolean = if (edition == Edition.Java) java else bedrock
 
-    /** Simulated against the terrain, so only computed while shown. */
+    /** Simulated against the terrain: slow, so loaded last and in quarter tiles. */
     val heavy: Boolean get() = this == Dungeon || this == Cave
 
     companion object {

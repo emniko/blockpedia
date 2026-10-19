@@ -6,12 +6,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -29,8 +31,6 @@ data class MapOptions(
     val terrain: Boolean = false,
     val ravines: Boolean = false,
     val apples: Boolean = false,
-    /** Slow layers ([StructureKind.heavy]) to compute; the others are always computed. */
-    val heavy: Set<StructureKind> = emptySet(),
 )
 
 data class Tile(
@@ -64,16 +64,19 @@ val SCALES = intArrayOf(4, 16, 64, 256)
 
 /**
  * Loads tiles in steps so the map fills in quickly: first the biome picture of every tile on
- * screen (nearest the middle first), then structures and other quick features, then the slow
+ * screen (nearest the middle first), then the shown structures and quick features, then the slow
  * simulated layers (dungeons, caves, ravines) a quarter tile at a time. Tiles just outside the
  * screen get their biomes and structures afterwards, so panning shows something at once.
+ * Only the kinds passed to [setKinds] are computed; turning one on later just adds its work.
  */
 class MapTiles(
     private val engine: SeedEngine,
     parentScope: CoroutineScope,
     val options: MapOptions,
+    shown: Set<StructureKind> = emptySet(),
 ) {
-    private val scope = CoroutineScope(parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]))
+    // Off the main thread: workers also turn biome ids into pictures.
+    private val scope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + Dispatchers.Default)
 
     private enum class Step(val rank: Int) { Base(0), Features(1), Ravines(2), Slow(2) }
 
@@ -90,6 +93,7 @@ class MapTiles(
     private var visible: List<TileKey> = emptyList()
     private var nearby: List<TileKey> = emptyList()
     private var workers = 0
+    @Volatile private var shown: Set<StructureKind> = shown
 
     private val _version = MutableStateFlow(0)
     /** Bumped whenever a tile changes, so the map redraws. */
@@ -111,12 +115,22 @@ class MapTiles(
         synchronized(lock) {
             this.visible = visible
             this.nearby = nearby
-            updateProgress()
-            while (workers < WORKERS) {
-                workers++
-                scope.launch { work() }
-            }
         }
+        kick()
+    }
+
+    /** The kinds to compute and show. */
+    fun setKinds(kinds: Set<StructureKind>) {
+        shown = kinds
+        kick()
+    }
+
+    private fun kick() {
+        val start = synchronized(lock) {
+            updateProgress()
+            (WORKERS - workers).also { workers = WORKERS }
+        }
+        repeat(start) { scope.launch { work() } }
     }
 
     /** Stops all loading; used when the options change and a new [MapTiles] takes over. */
@@ -126,13 +140,17 @@ class MapTiles(
 
     private fun stepsFor(key: TileKey): List<Work> = buildList {
         add(Work(key, Step.Base))
-        add(Work(key, Step.Features))
+        val shown = shown
+        for (kind in kinds) {
+            if (kind !in shown || key.scale > kind.maxScale) continue
+            if (kind.heavy) {
+                for (part in 0 until 4) add(Work(key, Step.Slow, kind, part))
+            } else {
+                add(Work(key, Step.Features, kind))
+            }
+        }
         if (options.ravines && java && engine.dimension == Dimension.Overworld && key.scale == RAVINE_SCALE) {
             add(Work(key, Step.Ravines))
-        }
-        for (kind in kinds) {
-            if (!kind.heavy || kind !in options.heavy || key.scale > kind.maxScale) continue
-            for (part in 0 until 4) add(Work(key, Step.Slow, kind, part))
         }
     }
 
@@ -177,7 +195,7 @@ class MapTiles(
                 e.done += w
                 updateProgress()
             }
-            _version.value++
+            _version.update { it + 1 }
         }
     }
 
@@ -188,22 +206,18 @@ class MapTiles(
                 e.tile = Tile(baseImage(key) ?: return)
             }
             Step.Features -> {
+                val kind = w.kind ?: return
                 val x0 = key.blockX
                 val z0 = key.blockZ
-                val found = HashMap<StructureKind, List<MapPoint>>()
+                val list = engine.features(kind, x0, z0, x0 + key.blockSize, z0 + key.blockSize) ?: return
+                if (list.isEmpty()) return
                 val apples = HashSet<Pos>()
-                for (kind in kinds) {
-                    if (kind.heavy || key.scale > kind.maxScale) continue
-                    val list = engine.features(kind, x0, z0, x0 + key.blockSize, z0 + key.blockSize) ?: continue
-                    if (list.isEmpty()) continue
-                    found[kind] = list
-                    if (options.apples && java && kind.canHaveApples) {
-                        for (p in list) {
-                            if (engine.lootCount(kind.id, p.pos.x, p.pos.z, "enchanted_golden_apple") > 0) apples += p.pos
-                        }
+                if (options.apples && java && kind.canHaveApples) {
+                    for (p in list) {
+                        if (engine.lootCount(kind.id, p.pos.x, p.pos.z, "enchanted_golden_apple") > 0) apples += p.pos
                     }
                 }
-                update(e) { it.copy(features = it.features + found, apples = it.apples + apples) }
+                update(e) { it.copy(features = it.features + (kind to list), apples = it.apples + apples) }
             }
             Step.Ravines -> {
                 val floor = engine.ravines(key.blockX / 16, key.blockZ / 16, key.blockSize / 16) ?: return
