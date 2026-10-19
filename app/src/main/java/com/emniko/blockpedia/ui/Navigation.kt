@@ -50,12 +50,14 @@ object Routes {
     const val ARTICLE = "article/{title}?frag={frag}"
     const val CATEGORY = "category/{name}"
     const val SEEDS = "seeds"
-    const val SEED_MAP = "seedmap?x={x}&z={z}"
+    const val SEED_MAP = "seedmap?x={x}&z={z}&dim={dim}"
     const val NEAREST = "nearest"
     const val SLIME = "slime"
 
-    fun seedMap(pos: com.emniko.blockpedia.seed.Pos?): String =
-        if (pos == null) "seedmap" else "seedmap?x=${pos.x}&z=${pos.z}"
+    fun seedMap(
+        pos: com.emniko.blockpedia.seed.Pos?,
+        dim: com.emniko.blockpedia.seed.Dimension = com.emniko.blockpedia.seed.Dimension.Overworld,
+    ): String = if (pos == null) "seedmap?dim=${dim.name}" else "seedmap?x=${pos.x}&z=${pos.z}&dim=${dim.name}"
 
     fun article(title: String, fragment: String? = null): String {
         val base = "article/" + Uri.encode(title)
@@ -159,18 +161,26 @@ fun BlockpediaRoot() {
                         nullable = true
                         defaultValue = null
                     },
+                    navArgument("dim") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
                 ),
             ) { entry ->
                 SeedMapScreen(
                     startX = entry.arguments?.getString("x")?.toIntOrNull(),
                     startZ = entry.arguments?.getString("z")?.toIntOrNull(),
+                    startDimension = entry.arguments?.getString("dim")
+                        ?.let { name -> com.emniko.blockpedia.seed.Dimension.entries.firstOrNull { it.name == name } }
+                        ?: com.emniko.blockpedia.seed.Dimension.Overworld,
                     onBack = { nav.popBackStack() },
                 )
             }
             composable(Routes.NEAREST) {
                 NearestScreen(
                     onBack = { nav.popBackStack() },
-                    onOpenMap = { nav.navigate(Routes.seedMap(it)) },
+                    onOpenMap = { pos, dim -> nav.navigate(Routes.seedMap(pos, dim)) },
                 )
             }
             composable(Routes.SLIME) {

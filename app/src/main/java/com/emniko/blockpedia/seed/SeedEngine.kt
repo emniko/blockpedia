@@ -11,10 +11,13 @@ import kotlinx.coroutines.withContext
  * keeps a small pool and each call borrows one.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SeedEngine(val config: SeedConfig) {
+class SeedEngine(val config: SeedConfig, val dimension: Dimension = Dimension.Overworld) {
 
     val mc: Int = SeedNative.nativeVersionId(config.version.cubiomes)
     val edition: Edition get() = config.edition
+
+    /** Bedrock's Nether biomes aren't modelled, so its Nether map shows structures only. */
+    val showsBiomes: Boolean get() = edition == Edition.Java || dimension == Dimension.Overworld
 
     private val pool = Channel<Long>(POOL_SIZE)
     private val lock = Any()
@@ -22,7 +25,7 @@ class SeedEngine(val config: SeedConfig) {
 
     init {
         repeat(POOL_SIZE) {
-            pool.trySend(SeedNative.nativeCreate(config.seed, mc, config.edition.nativeId))
+            pool.trySend(SeedNative.nativeCreate(config.seed, mc, config.edition.nativeId, dimension.nativeId))
         }
     }
 

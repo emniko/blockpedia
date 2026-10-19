@@ -7,6 +7,19 @@ enum class Edition(val label: String, val nativeId: Int) {
     Bedrock("Bedrock", 1),
 }
 
+enum class Dimension(val label: String, val nativeId: Int) {
+    Overworld("Overworld", 0),
+    Nether("Nether", -1),
+    End("End", 1),
+    ;
+
+    companion object {
+        /** Bedrock's End terrain isn't modelled, so it has no End map. */
+        fun forEdition(edition: Edition): List<Dimension> =
+            if (edition == Edition.Java) entries.toList() else listOf(Overworld, Nether)
+    }
+}
+
 /** A Java version range that shares one world generator. [cubiomes] is the native version name. */
 data class GameVersion(val label: String, val cubiomes: String)
 
@@ -75,6 +88,8 @@ enum class StructureKind(
     val letter: Char,
     val color: Long,
     val maxScale: Int,
+    val dimension: Dimension = Dimension.Overworld,
+    val java: Boolean = true,
     val bedrock: Boolean = true,
 ) {
     Village(5, "Village", 'V', 0xFFF4B740, 64),
@@ -93,11 +108,21 @@ enum class StructureKind(
     Shipwreck(7, "Shipwreck", 'S', 0xFF8D6E63, 16),
     OceanRuin(6, "Ocean ruins", 'O', 0xFF80CBC4, 16),
     BuriedTreasure(14, "Buried treasure", 'X', 0xFFFFD54F, 4),
+    Fortress(18, "Nether fortress", 'F', 0xFFE57373, 64, Dimension.Nether, bedrock = false),
+    Bastion(19, "Bastion remnant", 'B', 0xFF9E9E9E, 64, Dimension.Nether, bedrock = false),
+    // Bedrock places one of the two per region; which one isn't documented.
+    NetherComplex(18, "Fortress or bastion", 'F', 0xFFE57373, 64, Dimension.Nether, java = false),
+    NetherPortal(12, "Ruined portal (Nether)", 'R', 0xFFCE93D8, 16, Dimension.Nether),
+    EndCity(21, "End city", 'E', 0xFFE1BEE7, 64, Dimension.End, bedrock = false),
     ;
 
+    fun availableIn(edition: Edition): Boolean = if (edition == Edition.Java) java else bedrock
+
     companion object {
-        fun forEdition(edition: Edition): List<StructureKind> =
-            entries.filter { edition == Edition.Java || it.bedrock }
+        fun forEdition(edition: Edition): List<StructureKind> = entries.filter { it.availableIn(edition) }
+
+        fun forWorld(edition: Edition, dimension: Dimension): List<StructureKind> =
+            entries.filter { it.dimension == dimension && it.availableIn(edition) }
     }
 }
 
@@ -122,6 +147,10 @@ val StructureKind.iconUrl: String
         StructureKind.Shipwreck -> "EnvSprite_shipwreck.png"
         StructureKind.OceanRuin -> "EnvSprite_ocean-ruin.png"
         StructureKind.BuriedTreasure -> "BlockSprite_chest.png"
+        StructureKind.Fortress, StructureKind.NetherComplex -> "EnvSprite_fortress.png"
+        StructureKind.Bastion -> "EnvSprite_bastion-remnant.png"
+        StructureKind.NetherPortal -> "EnvSprite_ruined-portal.png"
+        StructureKind.EndCity -> "EnvSprite_end-city.png"
     }
 
 const val STRONGHOLD_ICON_URL = WIKI_IMAGES + "EnvSprite_stronghold.png"

@@ -4,7 +4,7 @@ package com.emniko.blockpedia.seed
 object SeedNative {
     val loadError: Throwable? = runCatching { System.loadLibrary("seedmap") }.exceptionOrNull()
 
-    external fun nativeCreate(seed: Long, mc: Int, edition: Int): Long
+    external fun nativeCreate(seed: Long, mc: Int, edition: Int, dim: Int): Long
     external fun nativeFree(handle: Long)
     external fun nativeBiomes(handle: Long, scale: Int, x: Int, z: Int, w: Int, h: Int, out: IntArray): Boolean
     external fun nativeBiomeAt(handle: Long, x: Int, z: Int): Int

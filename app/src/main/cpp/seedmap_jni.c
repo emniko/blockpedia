@@ -8,10 +8,10 @@
 
 static SeedMap *H(jlong h) { return (SeedMap *) (intptr_t) h; }
 
-JNIEXPORT jlong JNICALL FN(nativeCreate)(JNIEnv *env, jobject thiz, jlong seed, jint mc, jint edition)
+JNIEXPORT jlong JNICALL FN(nativeCreate)(JNIEnv *env, jobject thiz, jlong seed, jint mc, jint edition, jint dim)
 {
     (void) env; (void) thiz;
-    return (jlong) (intptr_t) sm_create((uint64_t) seed, mc, edition);
+    return (jlong) (intptr_t) sm_create((uint64_t) seed, mc, edition, dim);
 }
 
 JNIEXPORT void JNICALL FN(nativeFree)(JNIEnv *env, jobject thiz, jlong h)

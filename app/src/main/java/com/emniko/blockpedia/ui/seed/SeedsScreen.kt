@@ -92,7 +92,7 @@ fun SeedsScreen(
             ToolCard(
                 icon = Icons.Outlined.Map,
                 title = "Seed map",
-                subtitle = "Biomes and structures, zoom and pan anywhere",
+                subtitle = "Overworld, Nether and End: biomes and structures",
                 enabled = ready != null,
                 onClick = { onOpenMap(null) },
             )

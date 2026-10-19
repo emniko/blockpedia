@@ -21,7 +21,8 @@ class SeedStore(context: Context) {
     )
     val input: StateFlow<Input> = _input.asStateFlow()
 
-    private var engine: SeedEngine? = null
+    private var engineConfig: SeedConfig? = null
+    private val engines = HashMap<Dimension, SeedEngine>()
 
     fun update(input: Input) {
         _input.value = input
@@ -48,12 +49,14 @@ class SeedStore(context: Context) {
         }
     }
 
-    /** One engine at a time: switching worlds frees the previous one. */
+    /** Engines for one world at a time: switching worlds frees the previous ones. */
     @Synchronized
-    fun engine(config: SeedConfig): SeedEngine {
-        val current = engine
-        if (current != null && current.config == config) return current
-        current?.close()
-        return SeedEngine(config).also { engine = it }
+    fun engine(config: SeedConfig, dimension: Dimension = Dimension.Overworld): SeedEngine {
+        if (engineConfig != config) {
+            engines.values.forEach { it.close() }
+            engines.clear()
+            engineConfig = config
+        }
+        return engines.getOrPut(dimension) { SeedEngine(config, dimension) }
     }
 }

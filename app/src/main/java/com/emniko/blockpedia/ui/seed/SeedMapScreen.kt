@@ -91,6 +91,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.emniko.blockpedia.Graph
 import com.emniko.blockpedia.seed.CELLS
 import com.emniko.blockpedia.seed.Edition
+import com.emniko.blockpedia.seed.Dimension
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import com.emniko.blockpedia.seed.MapTiles
 import com.emniko.blockpedia.seed.Pos
 import com.emniko.blockpedia.seed.SCALES
@@ -117,7 +121,7 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
     val spawn = MutableStateFlow<Pos?>(null)
     val strongholds = MutableStateFlow<List<Pos>>(emptyList())
 
-    val kinds = StructureKind.forEdition(engine.edition)
+    val kinds = StructureKind.forWorld(engine.edition, engine.dimension)
     val enabled = MutableStateFlow(kinds.filter { it != StructureKind.BuriedTreasure }.toSet())
     val showSlime = MutableStateFlow(false)
     val showStrongholds = MutableStateFlow(true)
@@ -135,7 +139,7 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
                 if (bitmap != null) icons.update { it + (url to bitmap) }
             }
         }
-        if (engine.edition == Edition.Java) {
+        if (engine.edition == Edition.Java && engine.dimension == Dimension.Overworld) {
             viewModelScope.launch {
                 spawn.value = safely { engine.spawn() }
                 strongholds.value = safely { engine.strongholds() } ?: emptyList()
@@ -168,16 +172,18 @@ private fun scaleFor(bpp: Double): Int = SCALES.firstOrNull { it >= bpp * 3 } ?:
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
+fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack: () -> Unit) {
     val store = Graph.seedStore
     val config = remember { store.config().getOrNull() }
     if (config == null) {
         MissingWorld(onBack)
         return
     }
-    val engine = remember(config) { store.engine(config) }
+    val dimensions = remember(config) { Dimension.forEdition(config.edition) }
+    var dimension by rememberSaveable { mutableStateOf(startDimension.takeIf { it in dimensions } ?: Dimension.Overworld) }
+    val engine = remember(config, dimension) { store.engine(config, dimension) }
     val appContext = LocalContext.current.applicationContext
-    val vm: SeedMapViewModel = viewModel(key = "seedmap:$config") { SeedMapViewModel(engine, appContext) }
+    val vm: SeedMapViewModel = viewModel(key = "seedmap:$config:$dimension") { SeedMapViewModel(engine, appContext) }
     val icons by vm.icons.collectAsState()
 
     val spawn by vm.spawn.collectAsState()
@@ -239,7 +245,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
     }
 
     // Slime chunks for the visible area, recomputed when it moves by a few chunks.
-    val slimeOn = showSlime && bpp <= SLIME_MAX_BPP
+    val slimeOn = showSlime && bpp <= SLIME_MAX_BPP && dimension == Dimension.Overworld
     val scx0 = floor((centerX - halfW) / 16).toInt() shr 3
     val scx1 = floor((centerX + halfW) / 16).toInt() shr 3
     val scz0 = floor((centerZ - halfH) / 16).toInt() shr 3
@@ -261,12 +267,19 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
 
     // The tap handler is created once, so it reads the latest markers through this.
     val latestMarkers by rememberUpdatedState(markers)
+    val latestSpawn by rememberUpdatedState(spawn)
+    val latestStrongholds by rememberUpdatedState(strongholds)
+    val latestShowStrongholds by rememberUpdatedState(showStrongholds)
 
     // Biome name for a tapped point.
     var pickedBiome by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(picked) {
+    LaunchedEffect(picked, engine) {
         pickedBiome = null
         val p = picked ?: return@LaunchedEffect
+        if (!engine.showsBiomes) {
+            pickedBiome = "Biome not shown for Bedrock"
+            return@LaunchedEffect
+        }
         pickedBiome = try {
             engine.biomeName(engine.biomeAt(p.pos.x, p.pos.z))
         } catch (e: CancellationException) {
@@ -322,8 +335,8 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
             }
         }
         latestMarkers.forEach { consider(Picked.Structure(it.kind, it.pos)) }
-        if (showStrongholds) strongholds.forEach { consider(Picked.Stronghold(it)) }
-        spawn?.let { consider(Picked.Spawn(it)) }
+        if (latestShowStrongholds) latestStrongholds.forEach { consider(Picked.Stronghold(it)) }
+        latestSpawn?.let { consider(Picked.Spawn(it)) }
         picked = best ?: Picked.Point(screenToWorld(o))
     }
 
@@ -481,33 +494,47 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
                 drawLine(outline, mid - Offset(0f, arm), mid + Offset(0f, arm), 1.5.dp.toPx())
             }
 
-            // Center coordinates.
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                modifier = Modifier
+            // Dimension switcher, center coordinates and notes.
+            Column(
+                Modifier
                     .align(Alignment.TopStart)
+                    .fillMaxWidth()
                     .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    "X ${floor(centerX).toInt()}  Z ${floor(centerZ).toInt()}",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-            }
-            if (showSlime && !slimeOn) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 ) {
-                    Text(
-                        "Zoom in for slime chunks",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        dimensions.forEachIndexed { index, d ->
+                            SegmentedButton(
+                                selected = d == dimension,
+                                onClick = {
+                                    if (d != dimension) {
+                                        // Nether coordinates are an eighth of the Overworld's.
+                                        val factor = when {
+                                            dimension == Dimension.Overworld && d == Dimension.Nether -> 1.0 / 8
+                                            dimension == Dimension.Nether && d == Dimension.Overworld -> 8.0
+                                            else -> 1.0
+                                        }
+                                        centerX *= factor
+                                        centerZ *= factor
+                                        picked = null
+                                        dimension = d
+                                    }
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index, dimensions.size),
+                            ) { Text(d.label) }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MapPill("X ${floor(centerX).toInt()}  Z ${floor(centerZ).toInt()}")
+                    if (showSlime && !slimeOn && dimension == Dimension.Overworld) MapPill("Zoom in for slime chunks")
+                }
+                if (!engine.showsBiomes) {
+                    MapPill("Bedrock Nether: exact positions, no biomes. Bedrock picks fortress or bastion per region.")
                 }
             }
 
@@ -534,6 +561,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
                 PickedCard(
                     picked = p,
                     biome = pickedBiome,
+                    dimension = dimension,
                     onClose = { picked = null },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -567,8 +595,10 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                LayerSwitch("Slime chunks", showSlime) { vm.showSlime.value = it }
-                if (config.edition == Edition.Java) {
+                if (dimension == Dimension.Overworld) {
+                    LayerSwitch("Slime chunks", showSlime) { vm.showSlime.value = it }
+                }
+                if (config.edition == Edition.Java && dimension == Dimension.Overworld) {
                     LayerSwitch("Strongholds", showStrongholds) { vm.showStrongholds.value = it }
                 }
             }
@@ -622,6 +652,20 @@ fun StructureIcon(url: String, size: Dp) {
 }
 
 @Composable
+private fun MapPill(text: String) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
 private fun LayerSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
@@ -630,7 +674,7 @@ private fun LayerSwitch(label: String, checked: Boolean, onChange: (Boolean) -> 
 }
 
 @Composable
-private fun PickedCard(picked: Picked, biome: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val title = when (picked) {
         is Picked.Structure -> picked.kind.label
         is Picked.Stronghold -> "Stronghold"
@@ -664,7 +708,11 @@ private fun PickedCard(picked: Picked, biome: String?, onClose: () -> Unit, modi
                 Text(
                     buildString {
                         append(biome ?: "…")
-                        append(" · Nether X ${Math.floorDiv(picked.pos.x, 8)}, Z ${Math.floorDiv(picked.pos.z, 8)}")
+                        when (dimension) {
+                            Dimension.Overworld -> append(" · Nether X ${Math.floorDiv(picked.pos.x, 8)}, Z ${Math.floorDiv(picked.pos.z, 8)}")
+                            Dimension.Nether -> append(" · Overworld X ${picked.pos.x * 8}, Z ${picked.pos.z * 8}")
+                            Dimension.End -> Unit
+                        }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -17,7 +17,8 @@
 
 typedef struct SeedMap SeedMap;
 
-SeedMap *sm_create(uint64_t seed, int mc, int edition);
+/* dim: 0 overworld, -1 nether, +1 end. */
+SeedMap *sm_create(uint64_t seed, int mc, int edition, int dim);
 void sm_free(SeedMap *sm);
 
 /* Biome ids for a w*h grid at the given scale (4, 16, 64 or 256 blocks per cell).

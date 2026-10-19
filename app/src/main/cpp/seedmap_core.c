@@ -19,23 +19,35 @@ _Static_assert(Trail_Ruins == 24 && Trial_Chambers == 25 && Abandoned_Camp == 26
 
 struct SeedMap {
     Generator g;
+    SurfaceNoise endSurface; /* Java End: end city terrain check */
     uint64_t seed;
     int mc;
     int edition;
+    int dim;
     int *cache;
     size_t cacheLen;
 };
 
-SeedMap *sm_create(uint64_t seed, int mc, int edition)
+SeedMap *sm_create(uint64_t seed, int mc, int edition, int dim)
 {
     SeedMap *sm = (SeedMap *) calloc(1, sizeof(SeedMap));
     if (!sm) return NULL;
     sm->seed = seed;
     sm->mc = mc;
     sm->edition = edition;
+    sm->dim = dim;
     setupGenerator(&sm->g, mc, 0);
-    applySeed(&sm->g, DIM_OVERWORLD, seed);
+    applySeed(&sm->g, dim, seed);
+    if (dim == DIM_END) initSurfaceNoise(&sm->endSurface, DIM_END, seed);
     return sm;
+}
+
+/* Biome sampling height in 1:4 units. Nether biomes barely vary with height. */
+static int sample_y(const SeedMap *sm)
+{
+    if (sm->dim == DIM_NETHER) return 64 >> 2;
+    if (sm->dim == DIM_END) return 0;
+    return SURFACE_Y;
 }
 
 void sm_free(SeedMap *sm)
@@ -54,7 +66,7 @@ int sm_biomes(SeedMap *sm, int scale, int x, int z, int w, int h, int *out)
     r.z = z;
     r.sx = w;
     r.sz = h;
-    r.y = scale == 1 ? 319 : SURFACE_Y;
+    r.y = scale == 1 ? 319 : sample_y(sm);
     r.sy = 1;
 
     size_t need = getMinCacheSize(&sm->g, scale, w, 1, h);
@@ -71,7 +83,7 @@ int sm_biomes(SeedMap *sm, int scale, int x, int z, int w, int h, int *out)
 
 int sm_biome_at(SeedMap *sm, int blockX, int blockZ)
 {
-    return getBiomeAt(&sm->g, 4, blockX >> 2, SURFACE_Y, blockZ >> 2);
+    return getBiomeAt(&sm->g, 4, blockX >> 2, sample_y(sm), blockZ >> 2);
 }
 
 /* ------------------------------------------------------------------ Bedrock */
@@ -138,6 +150,12 @@ static int be_conf(int stype, BeConf *c)
     case Swamp_Hut:
     case Igloo:          *c = (BeConf){ 14357617u, 32, 8, BE_LINEAR }; return 1;
     case Ruined_Portal:  *c = (BeConf){ 40552231u, 40, 15, BE_LINEAR }; return 1;
+    /* Nether: each region holds a fortress or a bastion; which one isn't documented, so
+     * "Fortress" stands for both on Bedrock. */
+    case Fortress:       *c = (BeConf){ 30084232u, 30, 4, BE_LINEAR }; return 1;
+    case Ruined_Portal_N:*c = (BeConf){ 40552231u, 25, 10, BE_LINEAR }; return 1;
+    /* End cities aren't offered on Bedrock: without Bedrock's End terrain, every region
+     * would look like a city. */
     /* These use Java's placement on Bedrock too, with the full seed. */
     case Trail_Ruins:
     case Trial_Chambers:
@@ -185,6 +203,8 @@ static int be_village_only_biome(int id)
  * Java-only random roll) and for Bedrock-only village biomes (Java would reject them). */
 static int be_viable(SeedMap *sm, int stype, int x, int z)
 {
+    /* Bedrock's Nether biomes aren't modelled, so every Nether placement is reported. */
+    if (sm->dim != DIM_OVERWORLD) return 1;
     /* Ancient cities need the deep dark biome far underground; cubiomes samples it there. */
     if (stype == Ancient_City) return isViableStructurePos(stype, &sm->g, x, z, 0);
     int id = getBiomeAt(&sm->g, 4, x >> 2, SURFACE_Y, z >> 2);
@@ -210,6 +230,7 @@ static int java_structures(SeedMap *sm, int stype, int x0, int z0, int x1, int z
             if (!getStructurePos(stype, sm->mc, sm->seed, rx, rz, &p)) continue;
             if (p.x < x0 || p.x >= x1 || p.z < z0 || p.z >= z1) continue;
             if (!isViableStructurePos(stype, &sm->g, p.x, p.z, 0)) continue;
+            if (stype == End_City && !isViableEndCityTerrain(&sm->g, &sm->endSurface, p.x, p.z)) continue;
             if (n >= maxPairs) return n;
             out[2 * n] = p.x;
             out[2 * n + 1] = p.z;

@@ -21,6 +21,9 @@ data class TileKey(val scale: Int, val tx: Int, val tz: Int) {
 class Tile(val image: ImageBitmap, val structures: Map<StructureKind, List<Pos>>)
 
 const val CELLS = 64
+
+/** Background where biomes aren't shown (Bedrock Nether). */
+private const val PLAIN_NETHER = 0xFF4A1E1E.toInt()
 val SCALES = intArrayOf(4, 16, 64, 256)
 
 class MapTiles(private val engine: SeedEngine, private val scope: CoroutineScope) {
@@ -33,7 +36,7 @@ class MapTiles(private val engine: SeedEngine, private val scope: CoroutineScope
     /** Bumped whenever a tile finishes, so the map redraws. */
     val version: StateFlow<Int> = _version.asStateFlow()
 
-    private val kinds = StructureKind.forEdition(engine.edition)
+    private val kinds = StructureKind.forWorld(engine.edition, engine.dimension)
 
     fun get(key: TileKey): Tile? = cache.get(key)
 
@@ -65,8 +68,12 @@ class MapTiles(private val engine: SeedEngine, private val scope: CoroutineScope
     }
 
     private suspend fun build(key: TileKey): Tile? {
-        val ids = engine.biomes(key.scale, key.tx * CELLS, key.tz * CELLS, CELLS, CELLS) ?: return null
-        val pixels = IntArray(ids.size) { BiomePalette.color(ids[it]) }
+        val pixels = if (engine.showsBiomes) {
+            val ids = engine.biomes(key.scale, key.tx * CELLS, key.tz * CELLS, CELLS, CELLS) ?: return null
+            IntArray(ids.size) { BiomePalette.color(ids[it]) }
+        } else {
+            IntArray(CELLS * CELLS) { PLAIN_NETHER }
+        }
         val bitmap = Bitmap.createBitmap(pixels, CELLS, CELLS, Bitmap.Config.ARGB_8888)
 
         val x0 = key.blockX

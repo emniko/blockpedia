@@ -47,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.emniko.blockpedia.Graph
 import com.emniko.blockpedia.seed.Edition
+import com.emniko.blockpedia.seed.Dimension
 import com.emniko.blockpedia.seed.Pos
 import com.emniko.blockpedia.seed.SeedEngine
 import com.emniko.blockpedia.seed.StructureKind
@@ -59,6 +60,7 @@ import kotlinx.coroutines.launch
 
 /** What to search for: a structure type, or strongholds (Java only). */
 private data class Target(val label: String, val kind: StructureKind?) {
+    val dimension: Dimension get() = kind?.dimension ?: Dimension.Overworld
     val iconUrl: String get() = kind?.iconUrl ?: STRONGHOLD_ICON_URL
 }
 
@@ -67,7 +69,13 @@ private data class Found(val pos: Pos, val distance: Int, val direction: String)
 private sealed interface NearestState {
     data object Idle : NearestState
     data object Searching : NearestState
-    data class Done(val target: String, val iconUrl: String, val results: List<Found>, val radius: Int) : NearestState
+    data class Done(
+        val target: String,
+        val iconUrl: String,
+        val dimension: Dimension,
+        val results: List<Found>,
+        val radius: Int,
+    ) : NearestState
     data class Failed(val message: String) : NearestState
 }
 
@@ -86,7 +94,7 @@ private suspend fun search(engine: SeedEngine, target: Target, x: Int, z: Int): 
         val all = engine.strongholds()
         val results = all.map { Found(it, it.distanceTo(x, z).toInt(), direction(x, z, it.x, it.z)) }
             .sortedBy { it.distance }.take(RESULTS)
-        return NearestState.Done(target.label, target.iconUrl, results, 0)
+        return NearestState.Done(target.label, target.iconUrl, target.dimension, results, 0)
     }
     var radius = 0
     var found: List<Pos> = emptyList()
@@ -99,19 +107,18 @@ private suspend fun search(engine: SeedEngine, target: Target, x: Int, z: Int): 
     }
     val results = found.map { Found(it, it.distanceTo(x, z).toInt(), direction(x, z, it.x, it.z)) }
         .sortedBy { it.distance }.take(RESULTS)
-    return NearestState.Done(target.label, target.iconUrl, results, radius)
+    return NearestState.Done(target.label, target.iconUrl, target.dimension, results, radius)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos) -> Unit) {
+fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos, Dimension) -> Unit) {
     val store = Graph.seedStore
     val config = remember { store.config().getOrNull() }
     if (config == null) {
         MissingWorld(onBack)
         return
     }
-    val engine = remember(config) { store.engine(config) }
     val targets = remember(config) {
         StructureKind.forEdition(config.edition).map { Target(it.label, it) } +
             if (config.edition == Edition.Java) listOf(Target("Stronghold", null)) else emptyList()
@@ -135,7 +142,7 @@ fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos) -> Unit) {
         state = NearestState.Searching
         job = scope.launch {
             state = try {
-                search(engine, target, x, z)
+                search(store.engine(config, target.dimension), target, x, z)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -179,8 +186,9 @@ fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos) -> Unit) {
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CoordField("Your X", xText, { xText = it }, Modifier.weight(1f))
-                        CoordField("Your Z", zText, { zText = it }, Modifier.weight(1f))
+                        val where = if (target.dimension == Dimension.Overworld) "Your" else "Your ${target.dimension.label}"
+                        CoordField("$where X", xText, { xText = it }, Modifier.weight(1f))
+                        CoordField("$where Z", zText, { zText = it }, Modifier.weight(1f))
                     }
                     Button(onClick = ::startSearch, enabled = x != null && z != null, modifier = Modifier.fillMaxWidth()) {
                         Text("Search")
@@ -216,11 +224,16 @@ fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos) -> Unit) {
                                 Text("${i + 1}.  X ${f.pos.x}, Z ${f.pos.z}", fontWeight = FontWeight.SemiBold)
                             },
                             supportingContent = {
-                                Text("${f.distance} blocks ${f.direction} · Nether X ${Math.floorDiv(f.pos.x, 8)}, Z ${Math.floorDiv(f.pos.z, 8)}")
+                                val other = when (s.dimension) {
+                                    Dimension.Overworld -> " · Nether X ${Math.floorDiv(f.pos.x, 8)}, Z ${Math.floorDiv(f.pos.z, 8)}"
+                                    Dimension.Nether -> " · Overworld X ${f.pos.x * 8}, Z ${f.pos.z * 8}"
+                                    Dimension.End -> ""
+                                }
+                                Text("${f.distance} blocks ${f.direction}$other")
                             },
                             leadingContent = { StructureIcon(s.iconUrl, 32.dp) },
                             trailingContent = { Icon(Icons.Outlined.NearMe, contentDescription = "Show on map") },
-                            modifier = Modifier.clickable { onOpenMap(f.pos) },
+                            modifier = Modifier.clickable { onOpenMap(f.pos, s.dimension) },
                         )
                         HorizontalDivider()
                     }
