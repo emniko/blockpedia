@@ -56,6 +56,22 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
+import androidx.core.graphics.drawable.toBitmap
+import android.content.Context
+import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import com.emniko.blockpedia.seed.STRONGHOLD_ICON_URL
+import com.emniko.blockpedia.seed.iconUrl
+import kotlinx.coroutines.flow.update
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -96,7 +112,7 @@ private const val MAX_BPP = 96.0
 private const val SLIME_MAX_BPP = 1.0
 private const val TAP_RADIUS_DP = 24
 
-class SeedMapViewModel(val engine: SeedEngine) : ViewModel() {
+class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel() {
     val tiles = MapTiles(engine, viewModelScope)
     val spawn = MutableStateFlow<Pos?>(null)
     val strongholds = MutableStateFlow<List<Pos>>(emptyList())
@@ -106,7 +122,19 @@ class SeedMapViewModel(val engine: SeedEngine) : ViewModel() {
     val showSlime = MutableStateFlow(false)
     val showStrongholds = MutableStateFlow(true)
 
+    /** Wiki structure icons for the map canvas, by URL. Markers show letters until they load. */
+    val icons = MutableStateFlow<Map<String, ImageBitmap>>(emptyMap())
+
     init {
+        val loader = appContext.imageLoader
+        val urls = (kinds.map { it.iconUrl } + STRONGHOLD_ICON_URL).distinct()
+        for (url in urls) {
+            viewModelScope.launch {
+                val request = ImageRequest.Builder(appContext).data(url).allowHardware(false).build()
+                val bitmap = safely { (loader.execute(request) as? SuccessResult)?.drawable?.toBitmap()?.asImageBitmap() }
+                if (bitmap != null) icons.update { it + (url to bitmap) }
+            }
+        }
         if (engine.edition == Edition.Java) {
             viewModelScope.launch {
                 spawn.value = safely { engine.spawn() }
@@ -148,7 +176,9 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
         return
     }
     val engine = remember(config) { store.engine(config) }
-    val vm: SeedMapViewModel = viewModel(key = "seedmap:$config") { SeedMapViewModel(engine) }
+    val appContext = LocalContext.current.applicationContext
+    val vm: SeedMapViewModel = viewModel(key = "seedmap:$config") { SeedMapViewModel(engine, appContext) }
+    val icons by vm.icons.collectAsState()
 
     val spawn by vm.spawn.collectAsState()
     val strongholds by vm.strongholds.collectAsState()
@@ -402,21 +432,33 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
                     }
                 }
 
-                // Structures.
+                // Structures: wiki icons, or lettered dots until the icons have loaded.
                 val r = 9.dp.toPx()
+                val iconPx = 20.dp.toPx()
+                val backdrop = 3.dp.toPx()
                 for (m in markers) {
                     val c = worldToScreen(m.pos.x.toDouble(), m.pos.z.toDouble())
-                    drawCircle(Color(m.kind.color), r, c)
-                    drawCircle(Color(0xFF1B1B1B), r, c, style = Stroke(1.5.dp.toPx()))
-                    val label = markerLabels.getValue(m.kind)
-                    drawText(label, topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f))
+                    val icon = icons[m.kind.iconUrl]
+                    if (icon != null) {
+                        drawIconMarker(icon, c, iconPx, backdrop, Color(0xB3000000))
+                    } else {
+                        drawCircle(Color(m.kind.color), r, c)
+                        drawCircle(Color(0xFF1B1B1B), r, c, style = Stroke(1.5.dp.toPx()))
+                        val label = markerLabels.getValue(m.kind)
+                        drawText(label, topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f))
+                    }
                 }
                 if (showStrongholds) {
+                    val icon = icons[STRONGHOLD_ICON_URL]
                     for (s in strongholds) {
                         val c = worldToScreen(s.x.toDouble(), s.z.toDouble())
-                        drawCircle(Color(0xFF6A1B9A), r * 1.15f, c)
-                        drawCircle(Color.White, r * 1.15f, c, style = Stroke(1.5.dp.toPx()))
-                        drawText(strongholdLabel, topLeft = Offset(c.x - strongholdLabel.size.width / 2f, c.y - strongholdLabel.size.height / 2f))
+                        if (icon != null) {
+                            drawIconMarker(icon, c, iconPx * 1.15f, backdrop, Color(0xCC4A148C))
+                        } else {
+                            drawCircle(Color(0xFF6A1B9A), r * 1.15f, c)
+                            drawCircle(Color.White, r * 1.15f, c, style = Stroke(1.5.dp.toPx()))
+                            drawText(strongholdLabel, topLeft = Offset(c.x - strongholdLabel.size.width / 2f, c.y - strongholdLabel.size.height / 2f))
+                        }
                     }
                 }
                 spawn?.let { s ->
@@ -429,7 +471,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
                 // Selection ring.
                 picked?.let { p ->
                     val c = worldToScreen(p.pos.x.toDouble(), p.pos.z.toDouble())
-                    drawCircle(selectionColor, r * 1.9f, c, style = Stroke(3.dp.toPx()))
+                    drawCircle(selectionColor, r * 2.1f, c, style = Stroke(3.dp.toPx()))
                 }
 
                 // Center crosshair.
@@ -516,15 +558,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
                                 vm.enabled.value = if (kind in enabled) enabled - kind else enabled + kind
                             },
                             label = { Text(kind.label) },
-                            leadingIcon = {
-                                Box(
-                                    Modifier
-                                        .size(12.dp)
-                                        .padding(0.dp),
-                                ) {
-                                    Canvas(Modifier.fillMaxSize()) { drawCircle(Color(kind.color)) }
-                                }
-                            },
+                            leadingIcon = { StructureIcon(kind.iconUrl, 18.dp) },
                         )
                     }
                 }
@@ -555,6 +589,38 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, onBack: () -> Unit) {
     }
 }
 
+/** A wiki icon drawn on a small dark backdrop, readable on any biome colour. */
+private fun DrawScope.drawIconMarker(icon: ImageBitmap, center: Offset, height: Float, pad: Float, backdrop: Color) {
+    val width = height * icon.width / icon.height
+    val half = Size(width / 2 + pad, height / 2 + pad)
+    drawRoundRect(
+        color = backdrop,
+        topLeft = Offset(center.x - half.width, center.y - half.height),
+        size = Size(half.width * 2, half.height * 2),
+        cornerRadius = CornerRadius(pad * 2),
+    )
+    drawImage(
+        icon,
+        IntOffset.Zero,
+        IntSize(icon.width, icon.height),
+        IntOffset((center.x - width / 2).roundToInt(), (center.y - height / 2).roundToInt()),
+        IntSize(width.roundToInt(), height.roundToInt()),
+        filterQuality = FilterQuality.None,
+    )
+}
+
+/** Pixel-art structure icon from the Minecraft Wiki. */
+@Composable
+fun StructureIcon(url: String, size: Dp) {
+    AsyncImage(
+        model = url,
+        contentDescription = null,
+        modifier = Modifier.size(size),
+        contentScale = ContentScale.Fit,
+        filterQuality = FilterQuality.None,
+    )
+}
+
 @Composable
 private fun LayerSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -578,6 +644,15 @@ private fun PickedCard(picked: Picked, biome: String?, onClose: () -> Unit, modi
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            val iconUrl = when (picked) {
+                is Picked.Structure -> picked.kind.iconUrl
+                is Picked.Stronghold -> STRONGHOLD_ICON_URL
+                else -> null
+            }
+            if (iconUrl != null) {
+                StructureIcon(iconUrl, 36.dp)
+                Spacer(Modifier.size(12.dp))
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(

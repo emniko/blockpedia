@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,19 +51,23 @@ import com.emniko.blockpedia.seed.Pos
 import com.emniko.blockpedia.seed.SeedEngine
 import com.emniko.blockpedia.seed.StructureKind
 import com.emniko.blockpedia.seed.direction
+import com.emniko.blockpedia.seed.STRONGHOLD_ICON_URL
+import com.emniko.blockpedia.seed.iconUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** What to search for: a structure type, or strongholds (Java only). */
-private data class Target(val label: String, val kind: StructureKind?)
+private data class Target(val label: String, val kind: StructureKind?) {
+    val iconUrl: String get() = kind?.iconUrl ?: STRONGHOLD_ICON_URL
+}
 
 private data class Found(val pos: Pos, val distance: Int, val direction: String)
 
 private sealed interface NearestState {
     data object Idle : NearestState
     data object Searching : NearestState
-    data class Done(val target: String, val results: List<Found>, val radius: Int) : NearestState
+    data class Done(val target: String, val iconUrl: String, val results: List<Found>, val radius: Int) : NearestState
     data class Failed(val message: String) : NearestState
 }
 
@@ -80,7 +86,7 @@ private suspend fun search(engine: SeedEngine, target: Target, x: Int, z: Int): 
         val all = engine.strongholds()
         val results = all.map { Found(it, it.distanceTo(x, z).toInt(), direction(x, z, it.x, it.z)) }
             .sortedBy { it.distance }.take(RESULTS)
-        return NearestState.Done(target.label, results, 0)
+        return NearestState.Done(target.label, target.iconUrl, results, 0)
     }
     var radius = 0
     var found: List<Pos> = emptyList()
@@ -93,7 +99,7 @@ private suspend fun search(engine: SeedEngine, target: Target, x: Int, z: Int): 
     }
     val results = found.map { Found(it, it.distanceTo(x, z).toInt(), direction(x, z, it.x, it.z)) }
         .sortedBy { it.distance }.take(RESULTS)
-    return NearestState.Done(target.label, results, radius)
+    return NearestState.Done(target.label, target.iconUrl, results, radius)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -159,11 +165,13 @@ fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos) -> Unit) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box {
                         OutlinedButton(onClick = { pickerOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                            StructureIcon(target.iconUrl, 20.dp)
+                            Spacer(Modifier.width(8.dp))
                             Text("Find: ${target.label}")
                         }
                         DropdownMenu(expanded = pickerOpen, onDismissRequest = { pickerOpen = false }) {
                             targets.forEachIndexed { i, t ->
-                                DropdownMenuItem(text = { Text(t.label) }, onClick = {
+                                DropdownMenuItem(text = { Text(t.label) }, leadingIcon = { StructureIcon(t.iconUrl, 24.dp) }, onClick = {
                                     pickerOpen = false
                                     targetIndex = i
                                 })
@@ -205,14 +213,12 @@ fun NearestScreen(onBack: () -> Unit, onOpenMap: (Pos) -> Unit) {
                     itemsIndexed(s.results) { i, f ->
                         ListItem(
                             headlineContent = {
-                                Text("X ${f.pos.x}, Z ${f.pos.z}", fontWeight = FontWeight.SemiBold)
+                                Text("${i + 1}.  X ${f.pos.x}, Z ${f.pos.z}", fontWeight = FontWeight.SemiBold)
                             },
                             supportingContent = {
                                 Text("${f.distance} blocks ${f.direction} · Nether X ${Math.floorDiv(f.pos.x, 8)}, Z ${Math.floorDiv(f.pos.z, 8)}")
                             },
-                            leadingContent = {
-                                Text("${i + 1}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            },
+                            leadingContent = { StructureIcon(s.iconUrl, 32.dp) },
                             trailingContent = { Icon(Icons.Outlined.NearMe, contentDescription = "Show on map") },
                             modifier = Modifier.clickable { onOpenMap(f.pos) },
                         )

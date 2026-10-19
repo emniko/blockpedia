@@ -101,6 +101,31 @@ enum class StructureKind(
     }
 }
 
+private const val WIKI_IMAGES = "https://minecraft.wiki/images/"
+
+/** The structure's icon on the Minecraft Wiki, loaded at runtime like other wiki images. */
+val StructureKind.iconUrl: String
+    get() = WIKI_IMAGES + when (this) {
+        StructureKind.Village -> "EnvSprite_new-village.png"
+        StructureKind.Outpost -> "EnvSprite_pillager-outpost.png"
+        StructureKind.DesertTemple -> "EnvSprite_desert-pyramid.png"
+        StructureKind.JungleTemple -> "EnvSprite_jungle-pyramid.png"
+        StructureKind.WitchHut -> "EnvSprite_swamp-hut.png"
+        StructureKind.Igloo -> "EnvSprite_igloo.png"
+        StructureKind.Monument -> "EnvSprite_monument.png"
+        StructureKind.Mansion -> "EnvSprite_mansion.png"
+        StructureKind.AncientCity -> "EnvSprite_ancient-city.png"
+        StructureKind.TrailRuins -> "EnvSprite_trail-ruins.png"
+        StructureKind.TrialChambers -> "EnvSprite_trial-chambers.png"
+        StructureKind.AbandonedCamp -> "EnvSprite_abandoned-camp.png"
+        StructureKind.RuinedPortal -> "EnvSprite_ruined-portal.png"
+        StructureKind.Shipwreck -> "EnvSprite_shipwreck.png"
+        StructureKind.OceanRuin -> "EnvSprite_ocean-ruin.png"
+        StructureKind.BuriedTreasure -> "BlockSprite_chest.png"
+    }
+
+const val STRONGHOLD_ICON_URL = WIKI_IMAGES + "EnvSprite_stronghold.png"
+
 /** Biome display data from the native engine. */
 object BiomePalette {
     private val colors: IntArray by lazy {
