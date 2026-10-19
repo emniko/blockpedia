@@ -140,6 +140,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import com.emniko.blockpedia.seed.TileProgress
+import kotlin.math.abs
 import kotlin.math.hypot
 
 private const val MIN_BPP = 0.125   // 8 px per block
@@ -967,6 +968,29 @@ private fun lootLines(text: String): List<String> {
     }
 }
 
+/** Ore blocks grouped into touching clusters, biggest (then highest) first. */
+private fun oreVeins(blocks: List<IntArray>): List<List<IntArray>> {
+    val left = blocks.toMutableList()
+    val groups = ArrayList<List<IntArray>>()
+    while (left.isNotEmpty()) {
+        val group = arrayListOf(left.removeAt(left.size - 1))
+        var i = 0
+        while (i < group.size) {
+            val a = group[i++]
+            val rest = left.iterator()
+            while (rest.hasNext()) {
+                val b = rest.next()
+                if (abs(a[0] - b[0]) <= 1 && abs(a[1] - b[1]) <= 1 && abs(a[2] - b[2]) <= 1) {
+                    group += b
+                    rest.remove()
+                }
+            }
+        }
+        groups += group.sortedWith(compareBy({ it[1] }, { it[0] }, { it[2] }))
+    }
+    return groups.sortedWith(compareByDescending<List<IntArray>> { it.size }.thenByDescending { g -> g.maxOf { it[1] } })
+}
+
 private suspend fun loadDetails(
     engine: SeedEngine,
     picked: Picked,
@@ -1015,16 +1039,22 @@ private suspend fun loadDetails(
             if (java && engine.dimension != Dimension.End) {
                 val found = engine.chunkOres(Math.floorDiv(pos.x, 16), Math.floorDiv(pos.z, 16)).orEmpty()
                 val nether = engine.dimension == Dimension.Nether
-                oreTitle = if (nether) "Ancient debris in this chunk" else "Diamond ore in this chunk"
-                ores = if (found.isEmpty()) {
+                val name = if (nether) "ancient debris" else "diamond ore"
+                val veins = oreVeins(found)
+                oreTitle = if (nether) "Ancient debris in this chunk" else "Diamonds in this chunk"
+                ores = if (veins.isEmpty()) {
                     listOf("None")
                 } else {
-                    val sorted = found.sortedByDescending { it[1] }
-                    sorted.take(12).map { "X ${it[0]}, Y ${it[1]}, Z ${it[2]}" } +
-                        listOfNotNull(
-                            if (sorted.size > 12) "…and ${sorted.size - 12} more" else null,
-                            if (nether) null else "Some may be gone where a cave touches the ore.",
-                        )
+                    // A short summary: the biggest few groups, each at its middle block.
+                    buildList {
+                        add("${found.size} $name in ${veins.size} ${if (veins.size == 1) "group" else "groups"}")
+                        veins.take(3).forEach { v ->
+                            val c = v[v.size / 2]
+                            add("${v.size} at X ${c[0]}, Y ${c[1]}, Z ${c[2]}")
+                        }
+                        if (veins.size > 3) add("…and ${veins.size - 3} smaller")
+                        if (!nether) add("Some may be gone where a cave touches the ore.")
+                    }
                 }
             }
         }
