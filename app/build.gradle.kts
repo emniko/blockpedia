@@ -4,6 +4,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// CI builds number themselves from the GitHub run, so every published build is newer than the last.
+val buildNumber = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+
+// The permanent release key comes from CI secrets (see README). Without it, release builds fall back
+// to the debug key and aren't published as updates.
+val releaseKeystore = System.getenv("SIGNING_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+
 android {
     namespace = "com.emniko.blockpedia"
     compileSdk = 35
@@ -12,8 +19,11 @@ android {
         applicationId = "com.emniko.blockpedia"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = buildNumber
+        versionName = "1.2.$buildNumber"
+
+        // GitHub repository whose releases the in-app updater checks.
+        buildConfigField("String", "UPDATE_REPO", "\"emniko/blockpedia\"")
 
         ndk {
             // Phones (64/32-bit ARM) and the x86_64 emulator.
@@ -28,6 +38,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -36,9 +57,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Signed with the debug key so the release APK installs directly.
-            // Swap in your own keystore before distributing widely.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
 
@@ -51,6 +70,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"

@@ -6,6 +6,7 @@ import com.emniko.blockpedia.data.UserStore
 import com.emniko.blockpedia.data.WikiApi
 import com.emniko.blockpedia.data.WikiRepository
 import com.emniko.blockpedia.seed.SeedStore
+import com.emniko.blockpedia.update.AppUpdater
 import okhttp3.Cache
 import okhttp3.OkHttpClient
 import java.io.File
@@ -27,6 +28,8 @@ object Graph {
         private set
     lateinit var seedStore: SeedStore
         private set
+    lateinit var updater: AppUpdater
+        private set
 
     fun init(context: Context) {
         if (::http.isInitialized) return
@@ -43,5 +46,6 @@ object Graph {
         repo = WikiRepository(WikiApi(http), pageCache)
         userStore = UserStore(app)
         seedStore = SeedStore(app)
+        updater = AppUpdater(app, http)
     }
 }

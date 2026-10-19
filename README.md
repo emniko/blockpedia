@@ -53,6 +53,20 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`
 
 Requirements: JDK 17, Android SDK 35, NDK and CMake 3.22.1 (Android Studio installs them on first build). Minimum Android version: 8.0 (API 26).
 
+## In-app updates
+
+Every push to `main` builds a signed APK and publishes it as a GitHub Release (`v1.2.<build>`).
+In the app, **About ▸ Check for updates** compares the latest release with the installed build,
+downloads the APK and opens Android's installer.
+
+One-time setup (repo **Settings**):
+1. **General ▸ Danger Zone ▸ Change visibility ▸ Public**, so the app can read releases without a token.
+2. **Secrets and variables ▸ Actions**: add `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`,
+   `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`. Every release must be signed with the same key,
+   otherwise Android refuses the update. Keep a private backup of the keystore.
+
+Without the secrets, builds still work but use a temporary key and aren't published.
+
 ## How it works
 
 | Layer | File | Role |
@@ -72,4 +86,3 @@ If the wiki changes its markup, the parser is the only place to adjust; `app/src
 - **Trademark**: don't name or style it as an official Minecraft app. Google Play has historically rejected
   or removed unofficial Minecraft guides; sideloading the APK is the safe route.
 - **User-Agent**: `Graph.kt` identifies the app to the wiki with a GitHub URL — point it at your real repo.
-- **Signing**: replace the debug signing config in `app/build.gradle.kts` with your own keystore for a real release.

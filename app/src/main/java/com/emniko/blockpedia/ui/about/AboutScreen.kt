@@ -28,6 +28,14 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.emniko.blockpedia.Graph
+import com.emniko.blockpedia.update.UpdateState
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +70,8 @@ fun AboutScreen(onBack: () -> Unit) {
                     "so they always match the latest updates, and every page you open is kept for offline reading.",
                 style = MaterialTheme.typography.bodyLarge,
             )
+
+            UpdatesSection()
 
             Text("Credits and license", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
@@ -108,5 +118,86 @@ fun AboutScreen(onBack: () -> Unit) {
                 Text("Clear saved pages")
             }
         }
+    }
+}
+
+@Composable
+private fun UpdatesSection() {
+    val updater = Graph.updater
+    val state by updater.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("App updates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Installed: version ${updater.versionName}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            when (val s = state) {
+                UpdateState.Idle -> Button(onClick = updater::check) { Text("Check for updates") }
+                UpdateState.Checking -> {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Checking GitHub…", style = MaterialTheme.typography.bodyMedium)
+                }
+                UpdateState.UpToDate -> {
+                    Text("You have the latest version.", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = updater::check) { Text("Check again") }
+                }
+                is UpdateState.Available -> {
+                    ReleaseInfo(s.release.title, s.release.notes)
+                    val mb = s.release.sizeBytes / (1024.0 * 1024.0)
+                    Button(onClick = { updater.download(s.release) }) {
+                        Text(if (mb > 0) "Download update (%.1f MB)".format(mb) else "Download update")
+                    }
+                }
+                is UpdateState.Downloading -> {
+                    Text("Downloading ${s.release.title}…", style = MaterialTheme.typography.bodyMedium)
+                    val p = s.progress
+                    if (p == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                }
+                is UpdateState.ReadyToInstall -> {
+                    ReleaseInfo(s.release.title, s.release.notes)
+                    Text(
+                        "The first time, Android asks you to allow Blockpedia to install apps. " +
+                            "Turn it on, come back and tap Install again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = { updater.install(context, s.file) }) { Text("Install") }
+                }
+                is UpdateState.Failed -> {
+                    Text(s.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    val release = s.release
+                    if (release != null) {
+                        OutlinedButton(onClick = { updater.download(release) }) { Text("Retry download") }
+                    } else {
+                        OutlinedButton(onClick = updater::check) { Text("Try again") }
+                    }
+                }
+            }
+
+            Text(
+                "Updates come from the GitHub releases of ${com.emniko.blockpedia.BuildConfig.UPDATE_REPO}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReleaseInfo(title: String, notes: String) {
+    Text("$title is available", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+    if (notes.isNotBlank()) {
+        Text(
+            notes,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 8,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

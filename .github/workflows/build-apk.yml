@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write # to publish releases
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,15 +27,46 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Prepare signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "SIGNED=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No SIGNING_KEYSTORE_BASE64 secret: the release APK uses a temporary key and won't be published as an update."
+          fi
 
-      - name: Build release APK (minified)
-        continue-on-error: true
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Build APKs
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
           name: blockpedia-apk
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      # Publishing a release is what the in-app updater looks for.
+      - name: Publish release
+        if: env.SIGNED == 'true' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          VERSION="1.2.$((100 + GITHUB_RUN_NUMBER))"
+          APK="blockpedia-$VERSION.apk"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists (re-run); skipping."
+            exit 0
+          fi
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          gh release create "v$VERSION" "$APK" \
+            --title "Blockpedia $VERSION" \
+            --notes "$NOTES" \
+            --target "$GITHUB_SHA"
