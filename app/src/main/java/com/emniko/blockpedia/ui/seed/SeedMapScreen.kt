@@ -227,12 +227,14 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
             for (tz in tz0..tz1) for (tx in tx0..tx1) add(TileKey(scale, tx, tz))
         }.sortedBy { abs(it.tx - ctx) + abs(it.tz - ctz) }
     }
-    LaunchedEffect(visible, canvasSize) {
+    // Keyed on the view model too: switching dimension keeps the same tile coordinates
+    // but needs the new dimension's tiles.
+    LaunchedEffect(vm, visible, canvasSize) {
         if (canvasSize != IntSize.Zero) vm.tiles.request(visible)
     }
 
     // Structure markers from loaded tiles.
-    val markers = remember(visible, tileVersion, enabled) {
+    val markers = remember(vm, visible, tileVersion, enabled) {
         buildList {
             for (key in visible) {
                 val tile = vm.tiles.get(key) ?: continue
