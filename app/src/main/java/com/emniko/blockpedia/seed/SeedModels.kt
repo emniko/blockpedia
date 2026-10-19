@@ -265,6 +265,37 @@ fun depthHint(kind: StructureKind): String? = when (kind) {
     else -> null
 }
 
+/** Extra facts about a point or area feature, from its native info value. */
+fun featureFacts(kind: StructureKind, point: MapPoint, biomeName: (Int) -> String): List<String> = buildList {
+    val info = point.info
+    when (kind) {
+        StructureKind.Dungeon -> {
+            add("Spawner: " + when (info) { 0 -> "skeleton"; 1 -> "zombie"; else -> "spider" })
+            add("Up to two chests. Found by simulating the caves, so a few may differ in game.")
+        }
+        StructureKind.LavaPool -> add(if (info == 1) "On the surface" else "Underground, often inside a cave")
+        StructureKind.Fossil -> {
+            add(if (info and 0x7 < 4) "Spine" else "Skull")
+            add(if (info shr 8 == 1) "Deep fossil: may contain diamond ore" else "May contain coal ore")
+        }
+        StructureKind.NetherFossil -> add("In a soul sand valley")
+        StructureKind.Cave -> {
+            point.box?.let { add("Spans X ${it[0]} to ${it[3] + 8}, Z ${it[2]} to ${it[5] + 8}") }
+            add("Biome at the deepest part: " + biomeName(info ushr 16))
+            add("Size: about ${(info and 0xFFFF) * 512} cubic blocks of open space")
+        }
+        StructureKind.CopperVein, StructureKind.IronVein -> {
+            point.box?.let {
+                add("Spans X ${it[0]} to ${it[3] + 8}, Z ${it[2]} to ${it[5] + 8}")
+                val len = maxOf(it[3] - it[0], it[4] - it[1], it[5] - it[2]) + 8
+                add("About $len blocks long, with " + (if (kind == StructureKind.CopperVein) "granite" else "tuff") +
+                    " and the odd raw ore block")
+            }
+        }
+        else -> {}
+    }
+}
+
 const val STRONGHOLD_Y_TEXT = "Underground, at any height"
 
 /** Readable text for variant flags from the native engine. */
