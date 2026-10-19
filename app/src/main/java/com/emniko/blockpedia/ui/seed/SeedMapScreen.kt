@@ -70,6 +70,8 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.emniko.blockpedia.seed.STRONGHOLD_ICON_URL
+import com.emniko.blockpedia.seed.STRONGHOLD_SPAWNERS
+import com.emniko.blockpedia.seed.spawners
 import com.emniko.blockpedia.seed.iconUrl
 import kotlinx.coroutines.flow.update
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -122,7 +124,10 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
     val strongholds = MutableStateFlow<List<Pos>>(emptyList())
 
     val kinds = StructureKind.forWorld(engine.edition, engine.dimension)
-    val enabled = MutableStateFlow(kinds.filter { it != StructureKind.BuriedTreasure }.toSet())
+    // Buried treasure and mineshafts are very common, so they start hidden.
+    val enabled = MutableStateFlow(
+        kinds.filter { it != StructureKind.BuriedTreasure && it != StructureKind.Mineshaft }.toSet()
+    )
     val showSlime = MutableStateFlow(false)
     val showStrongholds = MutableStateFlow(true)
 
@@ -592,8 +597,17 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                         )
                     }
                 }
+                if (vm.kinds.any { it.spawners != null }) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { vm.enabled.value = vm.kinds.filter { it.spawners != null }.toSet() }) {
+                            Text("Only structures with spawners")
+                        }
+                        TextButton(onClick = { vm.enabled.value = vm.kinds.toSet() }) { Text("Show all") }
+                    }
+                }
                 Text(
-                    "Small structures appear as you zoom in.",
+                    "Small structures appear as you zoom in. Dungeon spawners can't be shown: " +
+                        "they depend on cave shapes the map can't calculate.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -719,6 +733,19 @@ private fun PickedCard(picked: Picked, biome: String?, dimension: Dimension, onC
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val spawnerText = when (picked) {
+                    is Picked.Structure -> picked.kind.spawners
+                    is Picked.Stronghold -> STRONGHOLD_SPAWNERS
+                    else -> null
+                }
+                if (spawnerText != null) {
+                    Text(
+                        spawnerText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
             IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = "Close") }
         }

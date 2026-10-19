@@ -108,6 +108,8 @@ enum class StructureKind(
     Shipwreck(7, "Shipwreck", 'S', 0xFF8D6E63, 16),
     OceanRuin(6, "Ocean ruins", 'O', 0xFF80CBC4, 16),
     BuriedTreasure(14, "Buried treasure", 'X', 0xFFFFD54F, 4),
+    // Decided per chunk in Java; Bedrock's rule isn't documented.
+    Mineshaft(15, "Mineshaft", 'Z', 0xFFB0855A, 16, bedrock = false),
     Fortress(18, "Nether fortress", 'F', 0xFFE57373, 64, Dimension.Nether, bedrock = false),
     Bastion(19, "Bastion remnant", 'B', 0xFF9E9E9E, 64, Dimension.Nether, bedrock = false),
     // Bedrock places one of the two per region; which one isn't documented.
@@ -147,6 +149,7 @@ val StructureKind.iconUrl: String
         StructureKind.Shipwreck -> "EnvSprite_shipwreck.png"
         StructureKind.OceanRuin -> "EnvSprite_ocean-ruin.png"
         StructureKind.BuriedTreasure -> "BlockSprite_chest.png"
+        StructureKind.Mineshaft -> "EnvSprite_abandoned-mineshaft.png"
         StructureKind.Fortress, StructureKind.NetherComplex -> "EnvSprite_fortress.png"
         StructureKind.Bastion -> "EnvSprite_bastion-remnant.png"
         StructureKind.NetherPortal -> "EnvSprite_ruined-portal.png"
@@ -154,6 +157,20 @@ val StructureKind.iconUrl: String
     }
 
 const val STRONGHOLD_ICON_URL = WIKI_IMAGES + "EnvSprite_stronghold.png"
+
+/** Monster spawners inside the structure (Minecraft Wiki, "Monster Spawner"), or null. */
+val StructureKind.spawners: String?
+    get() = when (this) {
+        StructureKind.Mineshaft -> "Cave spider spawners, among cobwebs"
+        StructureKind.Mansion -> "Spider spawner, only in a rare secret room"
+        StructureKind.Fortress -> "Blaze spawners, usually two"
+        StructureKind.Bastion -> "Magma cube spawner, in treasure bastions only"
+        StructureKind.NetherComplex -> "Blaze spawners if it's a fortress; magma cube spawner if it's a treasure bastion"
+        StructureKind.TrialChambers -> "Trial spawners"
+        else -> null
+    }
+
+const val STRONGHOLD_SPAWNERS = "Silverfish spawner in the end portal room"
 
 /** Biome display data from the native engine. */
 object BiomePalette {

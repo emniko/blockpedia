@@ -216,10 +216,29 @@ static int be_viable(SeedMap *sm, int stype, int x, int z)
 
 /* ------------------------------------------------------------------ structures */
 
+/* Mineshafts are decided per chunk rather than per region. */
+static int java_mineshafts(SeedMap *sm, int x0, int z0, int x1, int z1, int *out, int maxPairs)
+{
+    if (sm->dim != DIM_OVERWORLD) return -1;
+    int cx0 = floordiv(x0, 16), cz0 = floordiv(z0, 16);
+    int cx1 = floordiv(x1 - 1, 16), cz1 = floordiv(z1 - 1, 16);
+    Pos *pos = (Pos *) malloc(sizeof(Pos) * (size_t) (maxPairs > 0 ? maxPairs : 1));
+    if (!pos) return 0;
+    int n = getMineshafts(sm->mc, sm->seed, cx0, cz0, cx1, cz1, pos, maxPairs);
+    if (n > maxPairs) n = maxPairs;
+    for (int i = 0; i < n; i++) {
+        out[2 * i] = pos[i].x;
+        out[2 * i + 1] = pos[i].z;
+    }
+    free(pos);
+    return n;
+}
+
 static int java_structures(SeedMap *sm, int stype, int x0, int z0, int x1, int z1, int *out, int maxPairs)
 {
+    if (stype == Mineshaft) return java_mineshafts(sm, x0, z0, x1, z1, out, maxPairs);
     StructureConfig sc;
-    if (!getStructureConfig(stype, sm->mc, &sc)) return -1;
+    if (!getStructureConfig(stype, sm->mc, &sc) || sc.regionSize <= 0) return -1;
     int regBlocks = sc.regionSize * 16;
     int rx0 = floordiv(x0, regBlocks) - 1, rz0 = floordiv(z0, regBlocks) - 1;
     int rx1 = floordiv(x1, regBlocks) + 1, rz1 = floordiv(z1, regBlocks) + 1;
