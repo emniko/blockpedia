@@ -6,6 +6,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,15 +33,25 @@ data class MapOptions(
     val heavy: Set<StructureKind> = emptySet(),
 )
 
-class Tile(
+data class Tile(
     val image: ImageBitmap,
-    val features: Map<StructureKind, List<MapPoint>>,
+    val features: Map<StructureKind, List<MapPoint>> = emptyMap(),
     /** Ravine floors at block resolution (only on [RAVINE_SCALE] tiles with ravines on). */
-    val ravineFloor: ShortArray?,
-    val ravineImage: ImageBitmap?,
+    val ravineFloor: ShortArray? = null,
+    val ravineImage: ImageBitmap? = null,
     /** Structure positions whose chests hold an enchanted golden apple. */
-    val apples: Set<Pos>,
+    val apples: Set<Pos> = emptySet(),
 )
+
+/** What is still loading for the tiles on screen. [fraction] is 0..1 over all of their work. */
+data class TileProgress(
+    val mapLeft: Int = 0,
+    val slowLeft: Int = 0,
+    val slowLabel: String? = null,
+    val fraction: Float = 1f,
+) {
+    val busy: Boolean get() = mapLeft > 0 || slowLeft > 0
+}
 
 const val CELLS = 64
 
@@ -49,53 +62,204 @@ const val RAVINE_SCALE = 4
 private const val PLAIN_NETHER = 0xFF4A1E1E.toInt()
 val SCALES = intArrayOf(4, 16, 64, 256)
 
+/**
+ * Loads tiles in steps so the map fills in quickly: first the biome picture of every tile on
+ * screen (nearest the middle first), then structures and other quick features, then the slow
+ * simulated layers (dungeons, caves, ravines) a quarter tile at a time. Tiles just outside the
+ * screen get their biomes and structures afterwards, so panning shows something at once.
+ */
 class MapTiles(
     private val engine: SeedEngine,
-    private val scope: CoroutineScope,
+    parentScope: CoroutineScope,
     val options: MapOptions,
 ) {
+    private val scope = CoroutineScope(parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]))
 
-    private val cache = object : LruCache<TileKey, Tile>(240) {}
-    private val inFlight = HashSet<TileKey>()
-    private var wanted: Set<TileKey> = emptySet()
+    private enum class Step(val rank: Int) { Base(0), Features(1), Ravines(2), Slow(2) }
+
+    private data class Work(val key: TileKey, val step: Step, val kind: StructureKind? = null, val part: Int = 0)
+
+    private class Entry {
+        @Volatile var tile: Tile? = null
+        val done = HashSet<Work>()
+        val running = HashSet<Work>()
+    }
+
+    private val lock = Any()
+    private val entries = object : LruCache<TileKey, Entry>(320) {}
+    private var visible: List<TileKey> = emptyList()
+    private var nearby: List<TileKey> = emptyList()
+    private var workers = 0
 
     private val _version = MutableStateFlow(0)
-    /** Bumped whenever a tile finishes, so the map redraws. */
+    /** Bumped whenever a tile changes, so the map redraws. */
     val version: StateFlow<Int> = _version.asStateFlow()
+
+    private val _progress = MutableStateFlow(TileProgress())
+    val progress: StateFlow<TileProgress> = _progress.asStateFlow()
 
     private val kinds = StructureKind.forWorld(engine.edition, engine.dimension)
     private val java = engine.edition == Edition.Java
 
-    fun get(key: TileKey): Tile? = cache.get(key)
+    fun get(key: TileKey): Tile? = entries.get(key)?.tile
 
-    /** Loads the given tiles, most important first; tiles no longer wanted are skipped. */
-    fun request(keys: List<TileKey>) {
-        synchronized(inFlight) { wanted = keys.toHashSet() }
-        for (key in keys) {
-            if (cache.get(key) != null) continue
-            val added = synchronized(inFlight) { inFlight.add(key) }
-            if (!added) continue
-            scope.launch {
-                try {
-                    val stillWanted = synchronized(inFlight) { key in wanted }
-                    if (stillWanted) {
-                        build(key)?.let {
-                            cache.put(key, it)
-                            _version.value++
-                        }
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Leave the tile empty; it is retried the next time it is requested.
-                } finally {
-                    synchronized(inFlight) { inFlight.remove(key) }
-                }
+    /**
+     * Loads [visible] tiles (ordered most important first) completely and [nearby] ones' biomes
+     * and structures; work for tiles no longer listed is dropped.
+     */
+    fun request(visible: List<TileKey>, nearby: List<TileKey> = emptyList()) {
+        synchronized(lock) {
+            this.visible = visible
+            this.nearby = nearby
+            updateProgress()
+            while (workers < WORKERS) {
+                workers++
+                scope.launch { work() }
             }
         }
     }
 
-    private suspend fun build(key: TileKey): Tile? {
+    /** Stops all loading; used when the options change and a new [MapTiles] takes over. */
+    fun close() {
+        scope.cancel()
+    }
+
+    private fun stepsFor(key: TileKey): List<Work> = buildList {
+        add(Work(key, Step.Base))
+        add(Work(key, Step.Features))
+        if (options.ravines && java && engine.dimension == Dimension.Overworld && key.scale == RAVINE_SCALE) {
+            add(Work(key, Step.Ravines))
+        }
+        for (kind in kinds) {
+            if (!kind.heavy || kind !in options.heavy || key.scale > kind.maxScale) continue
+            for (part in 0 until 4) add(Work(key, Step.Slow, kind, part))
+        }
+    }
+
+    private fun entry(key: TileKey): Entry = entries.get(key) ?: Entry().also { entries.put(key, it) }
+
+    /** The most important step not yet done or running. Called with [lock] held. */
+    private fun next(): Work? {
+        val passes = listOf(visible to 0, nearby to 0, visible to 1, visible to 2, nearby to 1)
+        for ((keys, rank) in passes) {
+            for (key in keys) {
+                val e = entry(key)
+                if (rank > 0 && e.tile == null) continue
+                for (w in stepsFor(key)) {
+                    if (w.step.rank != rank || w in e.done || w in e.running) continue
+                    e.running += w
+                    return w
+                }
+            }
+        }
+        return null
+    }
+
+    private suspend fun work() {
+        while (true) {
+            val w = synchronized(lock) {
+                next().also { if (it == null) workers-- }
+            } ?: return
+            val e = synchronized(lock) { entry(w.key) }
+            try {
+                run(w, e)
+            } catch (c: CancellationException) {
+                synchronized(lock) {
+                    e.running -= w
+                    workers--
+                }
+                throw c
+            } catch (_: Exception) {
+                // Leave this step out; the tile keeps whatever it already has.
+            }
+            synchronized(lock) {
+                e.running -= w
+                e.done += w
+                updateProgress()
+            }
+            _version.value++
+        }
+    }
+
+    private suspend fun run(w: Work, e: Entry) {
+        val key = w.key
+        when (w.step) {
+            Step.Base -> {
+                e.tile = Tile(baseImage(key) ?: return)
+            }
+            Step.Features -> {
+                val x0 = key.blockX
+                val z0 = key.blockZ
+                val found = HashMap<StructureKind, List<MapPoint>>()
+                val apples = HashSet<Pos>()
+                for (kind in kinds) {
+                    if (kind.heavy || key.scale > kind.maxScale) continue
+                    val list = engine.features(kind, x0, z0, x0 + key.blockSize, z0 + key.blockSize) ?: continue
+                    if (list.isEmpty()) continue
+                    found[kind] = list
+                    if (options.apples && java && kind.canHaveApples) {
+                        for (p in list) {
+                            if (engine.lootCount(kind.id, p.pos.x, p.pos.z, "enchanted_golden_apple") > 0) apples += p.pos
+                        }
+                    }
+                }
+                update(e) { it.copy(features = it.features + found, apples = it.apples + apples) }
+            }
+            Step.Ravines -> {
+                val floor = engine.ravines(key.blockX / 16, key.blockZ / 16, key.blockSize / 16) ?: return
+                if (floor.any { it != SeedEngine.NO_RAVINE }) {
+                    val image = ravineBitmap(floor, key.blockSize).asImageBitmap()
+                    update(e) { it.copy(ravineFloor = floor, ravineImage = image) }
+                }
+            }
+            Step.Slow -> {
+                val kind = w.kind ?: return
+                val half = key.blockSize / 2
+                val x0 = key.blockX + (w.part % 2) * half
+                val z0 = key.blockZ + (w.part / 2) * half
+                val list = engine.features(kind, x0, z0, x0 + half, z0 + half) ?: return
+                if (list.isNotEmpty()) update(e) { it.copy(features = it.features + (kind to (it.features[kind].orEmpty() + list))) }
+            }
+        }
+    }
+
+    private inline fun update(e: Entry, change: (Tile) -> Tile) {
+        synchronized(lock) { e.tile?.let { e.tile = change(it) } }
+    }
+
+    /** Called with [lock] held. */
+    private fun updateProgress() {
+        var total = 0
+        var done = 0
+        var mapLeft = 0
+        var slowLeft = 0
+        var slowKind: StructureKind? = null
+        for (key in visible) {
+            val e = entries.get(key)
+            for (w in stepsFor(key)) {
+                total++
+                if (e != null && w in e.done) {
+                    done++
+                    continue
+                }
+                if (w.step.rank < 2) {
+                    mapLeft++
+                } else {
+                    slowLeft++
+                    if (slowKind == null) slowKind = w.kind
+                }
+            }
+        }
+        val label = when {
+            slowLeft == 0 -> null
+            slowKind == StructureKind.Dungeon -> "Finding dungeons"
+            slowKind == StructureKind.Cave -> "Finding caves"
+            else -> "Tracing ravines"
+        }
+        _progress.value = TileProgress(mapLeft, slowLeft, label, if (total == 0) 1f else done.toFloat() / total)
+    }
+
+    private suspend fun baseImage(key: TileKey): ImageBitmap? {
         val pixels = if (engine.showsBiomes) {
             val ids = engine.biomes(key.scale, key.tx * CELLS, key.tz * CELLS, CELLS, CELLS, options.biomeY) ?: return null
             IntArray(ids.size) { BiomePalette.color(ids[it]) }
@@ -103,36 +267,7 @@ class MapTiles(
             IntArray(CELLS * CELLS) { PLAIN_NETHER }
         }
         if (options.terrain && engine.dimension == Dimension.Overworld) shade(key, pixels)
-        val bitmap = Bitmap.createBitmap(pixels, CELLS, CELLS, Bitmap.Config.ARGB_8888)
-
-        val x0 = key.blockX
-        val z0 = key.blockZ
-        val features = HashMap<StructureKind, List<MapPoint>>()
-        val apples = HashSet<Pos>()
-        for (kind in kinds) {
-            if (key.scale > kind.maxScale) continue
-            if (kind.heavy && kind !in options.heavy) continue
-            val found = engine.features(kind, x0, z0, x0 + key.blockSize, z0 + key.blockSize) ?: continue
-            if (found.isEmpty()) continue
-            features[kind] = found
-            if (options.apples && java && kind.canHaveApples) {
-                for (p in found) {
-                    if (engine.lootCount(kind.id, p.pos.x, p.pos.z, "enchanted_golden_apple") > 0) apples += p.pos
-                }
-            }
-        }
-
-        var ravineFloor: ShortArray? = null
-        var ravineImage: ImageBitmap? = null
-        if (options.ravines && java && engine.dimension == Dimension.Overworld && key.scale == RAVINE_SCALE) {
-            val chunks = key.blockSize / 16
-            val floor = engine.ravines(x0 / 16, z0 / 16, chunks)
-            if (floor != null && floor.any { it != SeedEngine.NO_RAVINE }) {
-                ravineFloor = floor
-                ravineImage = ravineBitmap(floor, key.blockSize).asImageBitmap()
-            }
-        }
-        return Tile(bitmap.asImageBitmap(), features, ravineFloor, ravineImage, apples)
+        return Bitmap.createBitmap(pixels, CELLS, CELLS, Bitmap.Config.ARGB_8888).asImageBitmap()
     }
 
     /** Hill shading from approximate terrain height: lit slopes facing north-west, shaded otherwise. */
@@ -165,5 +300,10 @@ class MapTiles(
             }
         }
         return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
+    }
+
+    private companion object {
+        /** Matches the engine's generator pool, so a slow step never blocks all others. */
+        const val WORKERS = SeedEngine.POOL_SIZE
     }
 }

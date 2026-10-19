@@ -125,9 +125,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import com.emniko.blockpedia.seed.TileProgress
+import kotlin.math.hypot
 
 private const val MIN_BPP = 0.125   // 8 px per block
 private const val MAX_BPP = 96.0
@@ -142,7 +152,9 @@ class SeedMapViewModel(val engine: SeedEngine, appContext: Context) : ViewModel(
         private set
 
     fun setOptions(options: MapOptions) {
-        if (options != tiles.options) tiles = MapTiles(engine, viewModelScope, options)
+        if (options == tiles.options) return
+        tiles.close()
+        tiles = MapTiles(engine, viewModelScope, options)
     }
 
     /** Shows [kinds]; slow layers are only computed while shown. */
@@ -244,6 +256,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     val tiles = vm.tiles
     val options = tiles.options
     val tileVersion by tiles.version.collectAsState()
+    val progress by tiles.progress.collectAsState()
 
     var centerX by rememberSaveable { mutableDoubleStateOf(startX?.toDouble() ?: 0.0) }
     var centerZ by rememberSaveable { mutableDoubleStateOf(startZ?.toDouble() ?: 0.0) }
@@ -272,17 +285,38 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     val tx1 = floor((centerX + halfW) / tileBlocks).toInt()
     val tz0 = floor((centerZ - halfH) / tileBlocks).toInt()
     val tz1 = floor((centerZ + halfH) / tileBlocks).toInt()
-    val visible = remember(scale, tx0, tx1, tz0, tz1) {
-        val ctx = (tx0 + tx1) / 2.0
-        val ctz = (tz0 + tz1) / 2.0
+    // Tiles on screen load nearest the middle first, then a ring around the screen.
+    val ctx = floor(centerX / tileBlocks).toInt()
+    val ctz = floor(centerZ / tileBlocks).toInt()
+    val visible = remember(scale, tx0, tx1, tz0, tz1, ctx, ctz) {
+        val mx = (ctx + 0.5) * tileBlocks
+        val mz = (ctz + 0.5) * tileBlocks
         buildList {
             for (tz in tz0..tz1) for (tx in tx0..tx1) add(TileKey(scale, tx, tz))
-        }.sortedBy { abs(it.tx - ctx) + abs(it.tz - ctz) }
+        }.sortedBy { hypot(it.blockX + tileBlocks / 2.0 - mx, it.blockZ + tileBlocks / 2.0 - mz) }
+    }
+    val nearby = remember(scale, tx0, tx1, tz0, tz1) {
+        buildList {
+            for (tz in tz0 - 1..tz1 + 1) for (tx in tx0 - 1..tx1 + 1) {
+                if (tx < tx0 || tx > tx1 || tz < tz0 || tz > tz1) add(TileKey(scale, tx, tz))
+            }
+        }
     }
     // Keyed on the view model too: switching dimension keeps the same tile coordinates
     // but needs the new dimension's tiles.
-    LaunchedEffect(vm, tiles, visible, canvasSize) {
-        if (canvasSize != IntSize.Zero) tiles.request(visible)
+    LaunchedEffect(vm, tiles, visible, nearby, canvasSize) {
+        if (canvasSize != IntSize.Zero) tiles.request(visible, nearby)
+    }
+    // Tiles still waiting for their biomes pulse gently.
+    val pulse = if (progress.mapLeft > 0) {
+        rememberInfiniteTransition(label = "loading").animateFloat(
+            initialValue = 0.35f,
+            targetValue = 0.7f,
+            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+            label = "pulse",
+        ).value
+    } else {
+        0.5f
     }
 
     // Structure markers from loaded tiles.
@@ -421,6 +455,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                 .fillMaxSize()
         ) {
             val background = MaterialTheme.colorScheme.surfaceContainerHighest
+            val loadingColor = MaterialTheme.colorScheme.outlineVariant
             Canvas(
                 Modifier
                     .fillMaxSize()
@@ -453,6 +488,11 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                         drawImage(tile.image, IntOffset.Zero, IntSize(CELLS, CELLS), dstOffset, dstSize, filterQuality = FilterQuality.None)
                         continue
                     }
+                    drawRect(
+                        loadingColor.copy(alpha = pulse),
+                        Offset(dstOffset.x + 1f, dstOffset.y + 1f),
+                        Size(dstSize.width - 2f, dstSize.height - 2f),
+                    )
                     for (parentScale in SCALES) {
                         if (parentScale <= key.scale) continue
                         val parentBlocks = CELLS * parentScale
@@ -611,6 +651,7 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
                         }
                     }
                 }
+                if (progress.busy) LoadingPill(progress)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MapPill("X ${floor(centerX).toInt()}  Z ${floor(centerZ).toInt()}")
                     if (showSlime && !slimeOn && dimension == Dimension.Overworld) MapPill("Zoom in for slime chunks")
@@ -657,7 +698,9 @@ fun SeedMapScreen(startX: Int?, startZ: Int?, startDimension: Dimension, onBack:
     if (showLayers) {
         ModalBottomSheet(onDismissRequest = { showLayers = false }) {
             Column(
-                Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Structures", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -760,6 +803,28 @@ fun StructureIcon(url: String, size: Dp) {
         contentScale = ContentScale.Fit,
         filterQuality = FilterQuality.None,
     )
+}
+
+/** What the map is still working on, with overall progress for the tiles on screen. */
+@Composable
+private fun LoadingPill(progress: TileProgress) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp).width(220.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                val text = when {
+                    progress.mapLeft > 0 -> "Loading map"
+                    else -> progress.slowLabel ?: "Loading"
+                }
+                Text("$text… ${(progress.fraction * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+            }
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
+        }
+    }
 }
 
 @Composable

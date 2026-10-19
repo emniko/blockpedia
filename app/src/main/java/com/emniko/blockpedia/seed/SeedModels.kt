@@ -178,7 +178,7 @@ val StructureKind.iconUrl: String
         StructureKind.DesertWell -> "EnvSprite_desert-well.png"
         StructureKind.EndGateway -> "EnvSprite_end-gateway.png"
         StructureKind.Dungeon -> "EnvSprite_dungeon.png"
-        StructureKind.LavaPool -> "EnvSprite_lava-lake.png"
+        StructureKind.LavaPool -> "EnvSprite_lake-lava.png"
         StructureKind.Fossil -> "EnvSprite_fossil.png"
         StructureKind.NetherFossil -> "EnvSprite_nether-fossil.png"
         StructureKind.Cave -> "EnvSprite_cheese-cave.png"
