@@ -1049,7 +1049,7 @@ private suspend fun loadDetails(
         is Picked.Structure -> {
             val kind = picked.kind
             yLine = yText(kind, picked.point)
-                ?: if (kind in SURFACE_KINDS) engine.surface(pos.x, pos.z)?.second?.toString() else null
+            if (yLine == null && kind in SURFACE_KINDS) yLine = engine.surface(pos.x, pos.z)?.second?.toString()
             depthHint(kind)?.let(lines::add)
             if (kind == StructureKind.Geode && picked.point.info and 0x100 != 0) lines += "Cracked: you can see it from a cave"
             lines += featureFacts(kind, picked.point) { engine.biomeName(it) }
@@ -1061,16 +1061,18 @@ private suspend fun loadDetails(
             if (java) engine.loot(STRONGHOLD_ID, pos.x, pos.z)?.let { loot = lootLines(it) }
         }
         is Picked.Spawn -> {
-            engine.surface(pos.x, pos.z)?.let { (ground, top) ->
-                yLine = top.toString()
-                if (top > ground) floor = ground
+            val surface = engine.surface(pos.x, pos.z)
+            if (surface != null) {
+                yLine = surface.second.toString()
+                floor = if (surface.second > surface.first) surface.first else null
             }
         }
         is Picked.Point -> {
             // Where a player would stand here.
-            engine.surface(pos.x, pos.z)?.let { (ground, top) ->
-                yLine = top.toString()
-                if (top > ground) floor = ground
+            val surface = engine.surface(pos.x, pos.z)
+            if (surface != null) {
+                yLine = surface.second.toString()
+                floor = if (surface.second > surface.first) surface.first else null
             }
             // Ravine floor here, if the ravine layer is on and this tile has one.
             if (options.ravines && scale == RAVINE_SCALE) {
