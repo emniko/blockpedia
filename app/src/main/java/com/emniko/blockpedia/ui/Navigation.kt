@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
@@ -38,6 +40,7 @@ import com.emniko.blockpedia.ui.seed.NearestScreen
 import com.emniko.blockpedia.ui.seed.SeedMapScreen
 import com.emniko.blockpedia.ui.seed.SeedsScreen
 import com.emniko.blockpedia.ui.seed.SlimeScreen
+import com.emniko.blockpedia.ui.server.ServerScreen
 
 object Routes {
     const val HOME = "home"
@@ -53,6 +56,7 @@ object Routes {
     const val SEED_MAP = "seedmap?x={x}&z={z}&dim={dim}"
     const val NEAREST = "nearest"
     const val SLIME = "slime"
+    const val SERVER = "server"
 
     fun seedMap(
         pos: com.emniko.blockpedia.seed.Pos?,
@@ -73,6 +77,7 @@ private val TopTabs = listOf(
     TopTab(Routes.HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
     TopTab(Routes.SEARCH, "Search", Icons.Filled.Search, Icons.Outlined.Search),
     TopTab(Routes.SEEDS, "Seeds", Icons.Filled.Map, Icons.Outlined.Map),
+    TopTab(Routes.SERVER, "Server", Icons.Filled.Dns, Icons.Outlined.Dns),
     TopTab(Routes.SAVED, "Saved", Icons.Filled.Bookmarks, Icons.Outlined.Bookmarks),
 )
 
@@ -185,6 +190,9 @@ fun BlockpediaRoot() {
             }
             composable(Routes.SLIME) {
                 SlimeScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SERVER) {
+                ServerScreen()
             }
             composable(Routes.SAVED) {
                 SavedScreen(onOpenArticle = openArticle)
