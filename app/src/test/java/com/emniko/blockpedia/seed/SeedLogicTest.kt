@@ -56,4 +56,30 @@ class SeedLogicTest {
         assertEquals("E", direction(0, 0, 100, 0))
         assertEquals("SW", direction(0, 0, -100, 100))
     }
+
+    /** Villageroll's published check (Java 26.1.2/26.2 gameplay): novice librarian, 26 rerolls. */
+    @Test
+    fun librarianSequenceMatchesGame() {
+        val expected = listOf(
+            "power:3:34;bookshelf", "paper;efficiency:1:11", "feather_falling:1:18;paper", "bookshelf;paper",
+            "piercing:3:13;bookshelf", "punch:1:19;bookshelf", "paper;loyalty:1:5", "paper;piercing:3:13",
+            "bookshelf;silk_touch:1:14", "paper;bookshelf", "bookshelf;blast_protection:2:11",
+            "blast_protection:3:25;paper", "bookshelf;paper", "bookshelf;infinity:1:8", "mending:1:20;bookshelf",
+            "paper;bookshelf", "bookshelf;loyalty:2:26", "lunge:1:15;paper", "aqua_affinity:1:18;bookshelf",
+            "smite:4:43;bookshelf", "bookshelf;power:1:9", "bookshelf;fortune:3:23", "paper;frost_walker:1:32",
+            "paper;bookshelf", "infinity:1:6;bookshelf", "bookshelf;paper",
+        )
+        val seq = LibrarianSequence(java.lang.Long.parseUnsignedLong("8848607748424184544"), 1)
+        val actual = seq.range(1, expected.size).map { r ->
+            r.offers.joinToString(";") {
+                when (it) {
+                    is LibrarianOffer.Book -> "${it.enchantment}:${it.level}:${it.emeralds}"
+                    is LibrarianOffer.Item -> if (it.givesItem == "emerald") it.wantsItem else it.givesItem
+                }
+            }
+        }
+        assertEquals(expected, actual)
+        assertEquals(listOf(7), seq.match(listOf("piercing" to 3, "punch" to 1, "loyalty" to 1), limit = 2000))
+        assertEquals(15, seq.next("mending", 1, 0)?.number)
+    }
 }

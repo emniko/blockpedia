@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +64,7 @@ fun SeedsScreen(
     onOpenMap: (Pos?) -> Unit,
     onOpenNearest: () -> Unit,
     onOpenSlime: () -> Unit,
+    onOpenLibrarian: () -> Unit,
 ) {
     val store = Graph.seedStore
     val input by store.input.collectAsStateWithLifecycle()
@@ -109,6 +111,13 @@ fun SeedsScreen(
                 subtitle = "Find chunks where slimes spawn underground",
                 enabled = ready != null || input.edition == Edition.Bedrock,
                 onClick = onOpenSlime,
+            )
+            ToolCard(
+                icon = Icons.Outlined.AutoStories,
+                title = "Librarian trades",
+                subtitle = "Predict enchanted books from the seed (Java 26.1+)",
+                enabled = ready != null && ready.edition == Edition.Java,
+                onClick = onOpenLibrarian,
             )
 
             Text(

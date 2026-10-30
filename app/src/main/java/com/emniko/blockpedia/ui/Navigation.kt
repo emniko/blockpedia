@@ -39,6 +39,7 @@ import com.emniko.blockpedia.ui.search.SearchScreen
 import com.emniko.blockpedia.ui.seed.NearestScreen
 import com.emniko.blockpedia.ui.seed.SeedMapScreen
 import com.emniko.blockpedia.ui.seed.SeedsScreen
+import com.emniko.blockpedia.ui.seed.LibrarianScreen
 import com.emniko.blockpedia.ui.seed.SlimeScreen
 import com.emniko.blockpedia.ui.server.ServerScreen
 
@@ -56,6 +57,7 @@ object Routes {
     const val SEED_MAP = "seedmap?x={x}&z={z}&dim={dim}"
     const val NEAREST = "nearest"
     const val SLIME = "slime"
+    const val LIBRARIAN = "librarian"
     const val SERVER = "server"
 
     fun seedMap(
@@ -151,6 +153,7 @@ fun BlockpediaRoot() {
                     onOpenMap = { nav.navigate(Routes.seedMap(it)) },
                     onOpenNearest = { nav.navigate(Routes.NEAREST) },
                     onOpenSlime = { nav.navigate(Routes.SLIME) },
+                    onOpenLibrarian = { nav.navigate(Routes.LIBRARIAN) },
                 )
             }
             composable(
@@ -187,6 +190,9 @@ fun BlockpediaRoot() {
                     onBack = { nav.popBackStack() },
                     onOpenMap = { pos, dim -> nav.navigate(Routes.seedMap(pos, dim)) },
                 )
+            }
+            composable(Routes.LIBRARIAN) {
+                LibrarianScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SLIME) {
                 SlimeScreen(onBack = { nav.popBackStack() })
