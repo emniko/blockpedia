@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emniko.blockpedia.Graph
+import com.emniko.blockpedia.ui.server.AternosCard
 import com.emniko.blockpedia.seed.Edition
 import com.emniko.blockpedia.seed.JavaVersions
 import com.emniko.blockpedia.seed.Pos
@@ -110,6 +111,8 @@ fun SeedsScreen(
                 enabled = ready != null || input.edition == Edition.Bedrock,
                 onClick = onOpenSlime,
             )
+
+            AternosCard()
 
             Text(
                 text = "Worlds are calculated on your phone with cubiomes (MIT licence). Java results match the game. " +
