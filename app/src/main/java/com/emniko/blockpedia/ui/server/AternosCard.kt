@@ -25,7 +25,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Box
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.emniko.blockpedia.Graph
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +77,27 @@ fun AternosCard() {
     var address by remember { mutableStateOf(prefs.getString(KEY_ADDRESS, "").orEmpty()) }
     var editing by remember { mutableStateOf(address.isEmpty()) }
     var draft by remember { mutableStateOf(address) }
+
+    // Server status: checked when the address changes, on refresh, and when coming back to the app
+    // (for example after pressing Start on Aternos).
+    var status by remember { mutableStateOf<ServerStatus?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(address, refresh) {
+        if (address.isEmpty()) {
+            status = null
+            return@LaunchedEffect
+        }
+        checking = true
+        status = fetchServerStatus(Graph.http, address)
+        checking = false
+    }
 
     fun save() {
         address = cleanAddress(draft)
@@ -106,6 +141,9 @@ fun AternosCard() {
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
+                    IconButton(onClick = { refresh++ }, enabled = !checking) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "Check status")
+                    }
                     IconButton(onClick = {
                         clipboard.setText(AnnotatedString(address))
                         Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
@@ -114,6 +152,8 @@ fun AternosCard() {
                     }
                 }
             }
+
+            if (!editing && address.isNotEmpty()) StatusLine(status, checking)
 
             Button(onClick = { openAternos(context) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Open Aternos to start")
@@ -126,6 +166,34 @@ fun AternosCard() {
             )
         }
     }
+}
+
+@Composable
+private fun StatusLine(status: ServerStatus?, checking: Boolean) {
+    val (color, text) = when (status) {
+        is ServerStatus.Online -> Color(0xFF43A047) to buildString {
+            append("Online · ${status.players}/${status.max} players")
+            status.version?.let { append(" · $it") }
+        }
+        is ServerStatus.Waking -> Color(0xFFFFB300) to status.state
+        ServerStatus.Offline -> Color(0xFF9E9E9E) to "Offline"
+        ServerStatus.Unknown -> Color(0xFF9E9E9E) to "Status unavailable"
+        null -> Color(0xFF9E9E9E) to "Checking…"
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (checking && status == null) {
+            CircularProgressIndicator(Modifier.size(10.dp), strokeWidth = 1.5.dp)
+        } else {
+            Box(Modifier.size(10.dp).background(color, CircleShape))
+        }
+        Text(text, style = MaterialTheme.typography.bodyMedium)
+        if (checking && status != null) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+    }
+    Text(
+        "Status can lag by about a minute.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** Opens the Aternos panel in a Custom Tab, falling back to any browser. */
