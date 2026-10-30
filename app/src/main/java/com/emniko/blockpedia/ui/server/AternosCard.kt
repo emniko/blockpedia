@@ -176,9 +176,15 @@ private fun StatusLine(status: ServerStatus?, checking: Boolean) {
             status.version?.let { append(" · $it") }
         }
         is ServerStatus.Waking -> Color(0xFFFFB300) to status.state
-        ServerStatus.Offline -> Color(0xFF9E9E9E) to "Offline"
+        is ServerStatus.Offline -> Color(0xFF9E9E9E) to "Offline"
         ServerStatus.Unknown -> Color(0xFF9E9E9E) to "Status unavailable"
         null -> Color(0xFF9E9E9E) to "Checking…"
+    }
+    val motd = when (status) {
+        is ServerStatus.Online -> status.motd
+        is ServerStatus.Waking -> status.motd
+        is ServerStatus.Offline -> status.motd
+        else -> null
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (checking && status == null) {
@@ -189,11 +195,13 @@ private fun StatusLine(status: ServerStatus?, checking: Boolean) {
         Text(text, style = MaterialTheme.typography.bodyMedium)
         if (checking && status != null) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
     }
-    Text(
-        "Status can lag by about a minute.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    if (motd != null) {
+        Text(
+            motd,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 /** Opens the Aternos panel in a Custom Tab, falling back to any browser. */
