@@ -1,6 +1,7 @@
 package com.emniko.blockpedia
 
 import android.content.Context
+import com.emniko.blockpedia.ask.AskSettings
 import com.emniko.blockpedia.data.PageCache
 import com.emniko.blockpedia.data.UserStore
 import com.emniko.blockpedia.data.WikiApi
@@ -30,6 +31,8 @@ object Graph {
         private set
     lateinit var updater: AppUpdater
         private set
+    lateinit var askSettings: AskSettings
+        private set
 
     fun init(context: Context) {
         if (::http.isInitialized) return
@@ -47,5 +50,6 @@ object Graph {
         userStore = UserStore(app)
         seedStore = SeedStore(app)
         updater = AppUpdater(app, http)
+        askSettings = AskSettings(app)
     }
 }

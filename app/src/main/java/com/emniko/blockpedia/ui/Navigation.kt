@@ -42,6 +42,7 @@ import com.emniko.blockpedia.ui.seed.SeedsScreen
 import com.emniko.blockpedia.ui.seed.LibrarianScreen
 import com.emniko.blockpedia.ui.seed.SlimeScreen
 import com.emniko.blockpedia.ui.server.ServerScreen
+import com.emniko.blockpedia.ui.ask.AskScreen
 
 object Routes {
     const val HOME = "home"
@@ -59,6 +60,8 @@ object Routes {
     const val SLIME = "slime"
     const val LIBRARIAN = "librarian"
     const val SERVER = "server"
+    const val ASK = "ask?q={q}"
+    fun ask(q: String?) = "ask?q=" + Uri.encode(q.orEmpty())
 
     fun seedMap(
         pos: com.emniko.blockpedia.seed.Pos?,
@@ -137,10 +140,11 @@ fun BlockpediaRoot() {
                 )
             }
             composable(Routes.SEARCH) {
-                SearchScreen(onOpenArticle = openArticle)
+                SearchScreen(onOpenArticle = openArticle, onAsk = { nav.navigate(Routes.ask(it)) })
             }
             composable(Routes.FIND) {
                 SearchScreen(
+                    onAsk = { nav.navigate(Routes.ask(it)) },
                     onOpenArticle = { title ->
                         // Replace the search screen with the result, so Back skips it.
                         nav.navigate(Routes.article(title)) { popUpTo(Routes.FIND) { inclusive = true } }
@@ -196,6 +200,16 @@ fun BlockpediaRoot() {
             }
             composable(Routes.SLIME) {
                 SlimeScreen(onBack = { nav.popBackStack() })
+            }
+            composable(
+                Routes.ASK,
+                arguments = listOf(navArgument("q") { type = NavType.StringType; defaultValue = "" }),
+            ) { entry ->
+                AskScreen(
+                    initialQuestion = entry.arguments?.getString("q"),
+                    onBack = { nav.popBackStack() },
+                    onOpenArticle = { nav.navigate(Routes.article(it)) },
+                )
             }
             composable(Routes.SERVER) {
                 ServerScreen()

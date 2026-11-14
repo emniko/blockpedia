@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -99,7 +101,7 @@ class SearchViewModel(private val repo: WikiRepository) : ViewModel() {
 }
 
 @Composable
-fun SearchScreen(onOpenArticle: (String) -> Unit, onBack: (() -> Unit)? = null) {
+fun SearchScreen(onOpenArticle: (String) -> Unit, onBack: (() -> Unit)? = null, onAsk: (String) -> Unit = {}) {
     val vm: SearchViewModel = viewModel { SearchViewModel(Graph.repo) }
     val query by vm.query.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
@@ -146,6 +148,13 @@ fun SearchScreen(onOpenArticle: (String) -> Unit, onBack: (() -> Unit)? = null) 
             ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+        )
+        // Questions go to the AI assistant, which answers from wiki pages.
+        AssistChip(
+            onClick = { onAsk(query) },
+            label = { Text(if (query.isBlank()) "Ask Blockpedia AI" else "Ask AI: \"${query.trim().take(40)}\"") },
+            leadingIcon = { Icon(Icons.Outlined.AutoAwesome, contentDescription = null) },
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
         Box(Modifier.fillMaxSize()) {

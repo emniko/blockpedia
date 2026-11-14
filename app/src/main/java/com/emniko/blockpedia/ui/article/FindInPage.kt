@@ -7,19 +7,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import com.emniko.blockpedia.parse.CalloutBlock
-import com.emniko.blockpedia.parse.CodeBlock
 import com.emniko.blockpedia.parse.ContentBlock
-import com.emniko.blockpedia.parse.GalleryBlock
-import com.emniko.blockpedia.parse.HeadingBlock
-import com.emniko.blockpedia.parse.ImageBlock
-import com.emniko.blockpedia.parse.IndentBlock
-import com.emniko.blockpedia.parse.InfoboxBlock
-import com.emniko.blockpedia.parse.ListBlock
-import com.emniko.blockpedia.parse.ParagraphBlock
-import com.emniko.blockpedia.parse.QuoteBlock
-import com.emniko.blockpedia.parse.SoundBlock
-import com.emniko.blockpedia.parse.TableBlock
+import com.emniko.blockpedia.parse.blockText
 
 /** What "Find in page" is looking for, and whether the block being drawn holds the current match. */
 data class FindState(val query: String = "", val current: Boolean = false)
@@ -57,42 +46,6 @@ fun highlighted(text: String): AnnotatedString {
             highlightMatches(text, find)
         }
     }
-}
-
-/** All the text a block shows, for counting matches. */
-fun blockText(block: ContentBlock): String = buildString { appendText(block) }
-
-private fun StringBuilder.appendText(block: ContentBlock) {
-    when (block) {
-        is HeadingBlock -> line(block.text)
-        is ParagraphBlock -> line(block.text.text)
-        is ListBlock -> block.items.forEach { item -> item.forEach { appendText(it) } }
-        is IndentBlock -> block.blocks.forEach { appendText(it) }
-        is QuoteBlock -> block.blocks.forEach { appendText(it) }
-        is CalloutBlock -> block.blocks.forEach { appendText(it) }
-        is CodeBlock -> line(block.text)
-        is ImageBlock -> block.caption?.let { line(it.text) }
-        is GalleryBlock -> block.items.forEach { item -> item.caption?.let { line(it.text) } }
-        is TableBlock -> {
-            block.caption?.let { line(it.text) }
-            block.rows.forEach { row -> row.cells.forEach { cell -> cell.blocks.forEach { appendText(it) } } }
-        }
-        is InfoboxBlock -> {
-            block.title?.let { line(it) }
-            block.rows.forEach { row ->
-                row.label?.let { line(it.text) }
-                row.value.forEach { appendText(it) }
-            }
-        }
-        is SoundBlock -> block.title?.let { line(it.text) }
-        else -> {}
-    }
-}
-
-/** Separate pieces so a match can't run across two of them. */
-private fun StringBuilder.line(text: String) {
-    append(text)
-    append('\n')
 }
 
 /** One entry per match, in page order: the index of the block holding it. */

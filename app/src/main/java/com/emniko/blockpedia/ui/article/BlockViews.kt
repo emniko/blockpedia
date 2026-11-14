@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.emniko.blockpedia.parse.CalloutBlock
 import com.emniko.blockpedia.parse.CodeBlock
+import com.emniko.blockpedia.parse.blockText
 import com.emniko.blockpedia.parse.ContentBlock
 import com.emniko.blockpedia.parse.CraftingBlock
 import com.emniko.blockpedia.parse.GalleryBlock
