@@ -68,6 +68,20 @@ import com.emniko.blockpedia.data.pageUrl
 import com.emniko.blockpedia.parse.HeadingBlock
 import com.emniko.blockpedia.parse.LinkTarget
 import kotlinx.coroutines.launch
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
 
 private fun anchorsMatch(a: String, b: String) = a.replace(' ', '_').equals(b.replace(' ', '_'), ignoreCase = true)
 
@@ -93,11 +107,31 @@ fun ArticleScreen(
     val context = LocalContext.current
     var showToc by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    // Find in page: the query, every match (as the block it is in) and which one is current.
+    var finding by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var currentMatch by remember { mutableIntStateOf(0) }
     DisposableEffect(Unit) { onDispose { SoundPlayer.stop() } }
 
     val success = state as? ArticleUiState.Success
     val article: Article? = success?.result?.article
     val pageTitle = article?.title ?: title
+    val matches = remember(article, query) { article?.let { findMatches(it.blocks, query.trim()) }.orEmpty() }
+
+    fun showMatch(index: Int) {
+        if (matches.isEmpty()) return
+        currentMatch = Math.floorMod(index, matches.size)
+        // Item 0 is the title, so block i is item i + 1.
+        scope.launch { listState.animateScrollToItem(matches[currentMatch] + 1) }
+    }
+    LaunchedEffect(matches) {
+        currentMatch = 0
+        if (finding && matches.isNotEmpty()) listState.animateScrollToItem(matches[0] + 1)
+    }
+    BackHandler(enabled = finding) {
+        finding = false
+        query = ""
+    }
 
     fun scrollToAnchor(anchor: String) {
         val a = article ?: return
@@ -140,7 +174,20 @@ fun ArticleScreen(
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            if (finding) {
+                FindBar(
+                    query = query,
+                    onQuery = { query = it },
+                    position = if (matches.isEmpty()) null else currentMatch + 1,
+                    total = matches.size,
+                    onPrevious = { showMatch(currentMatch - 1) },
+                    onNext = { showMatch(currentMatch + 1) },
+                    onClose = {
+                        finding = false
+                        query = ""
+                    },
+                )
+            } else TopAppBar(
                 title = {
                     Text(article?.displayTitle ?: title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
@@ -176,6 +223,12 @@ fun ArticleScreen(
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (article != null) {
+                                DropdownMenuItem(text = { Text("Find in page") }, onClick = {
+                                    menuOpen = false
+                                    finding = true
+                                })
+                            }
                             DropdownMenuItem(text = { Text("Reload") }, onClick = {
                                 menuOpen = false
                                 vm.load(force = true)
@@ -213,6 +266,8 @@ fun ArticleScreen(
                 )
                 is ArticleUiState.Success -> {
                     ArticleContent(
+                        find = if (finding) query.trim() else "",
+                        currentBlock = matches.getOrNull(currentMatch) ?: -1,
                         article = s.result.article,
                         offline = s.result.offline,
                         listState = listState,
@@ -257,6 +312,8 @@ fun ArticleScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ArticleContent(
+    find: String,
+    currentBlock: Int,
     article: Article,
     offline: Boolean,
     listState: LazyListState,
@@ -286,8 +343,10 @@ private fun ArticleContent(
                 }
             }
         }
-        itemsIndexed(article.blocks) { _, block ->
-            BlockView(block, onLink)
+        itemsIndexed(article.blocks) { index, block ->
+            CompositionLocalProvider(LocalFind provides FindState(find, current = index == currentBlock)) {
+                BlockView(block, onLink)
+            }
         }
         if (article.categories.isNotEmpty()) {
             item(key = "categories") {
@@ -312,6 +371,59 @@ private fun ArticleContent(
             )
         }
     }
+}
+
+/** Replaces the top bar while searching: query field, "3 of 12", previous/next and close. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FindBar(
+    query: String,
+    onQuery: (String) -> Unit,
+    position: Int?,
+    total: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close find") }
+        },
+        title = {
+            TextField(
+                value = query,
+                onValueChange = onQuery,
+                placeholder = { Text("Find in page") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onNext() }),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            )
+        },
+        actions = {
+            if (query.isNotBlank()) {
+                Text(
+                    if (position == null) "0/0" else "$position/$total",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onPrevious, enabled = total > 0) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous match")
+            }
+            IconButton(onClick = onNext, enabled = total > 0) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next match")
+            }
+        },
+    )
 }
 
 @Composable

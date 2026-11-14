@@ -146,7 +146,8 @@ fun RichTextView(
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
     val currentOnLink by rememberUpdatedState(onLink)
     val inlineContent = remember(text.icons) { iconContent(text.icons) }
-    val annotated = remember(text, linkColor, codeBackground) {
+    val find = LocalFind.current
+    val annotated = remember(text, linkColor, codeBackground, find) {
         buildAnnotatedString {
             // Copy the text, swapping each icon placeholder for inline content (same length, so offsets hold).
             var pos = 0
@@ -176,6 +177,7 @@ fun RichTextView(
                     link.end,
                 )
             }
+            highlightMatches(text.text, find)
         }
     }
     Text(text = annotated, modifier = modifier, style = style, color = color, inlineContent = inlineContent)
@@ -219,7 +221,7 @@ private fun HeadingView(block: HeadingBlock) {
     }
     Column(Modifier.padding(top = if (block.level <= 2) 20.dp else 10.dp)) {
         Text(
-            text = block.text,
+            text = highlighted(block.text),
             style = style,
             fontWeight = FontWeight.Bold,
             color = if (block.level <= 2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -298,7 +300,7 @@ private fun CodeView(block: CodeBlock, nested: Boolean) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) {
         val scroll = if (nested) Modifier else Modifier.horizontalScroll(rememberScrollState())
         Text(
-            text = block.text,
+            text = highlighted(block.text),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
             modifier = scroll.padding(12.dp),
@@ -444,7 +446,14 @@ private fun isIconOnly(cell: TableCell): Boolean = cell.blocks.all { block ->
 private fun TableView(table: TableBlock, onLink: OnLink, nested: Boolean) {
     val widths = remember(table) { columnWidths(table) }
     var expanded by remember(table) { mutableStateOf(false) }
-    val rows = if (expanded || table.rows.size <= ROW_LIMIT) table.rows else table.rows.take(ROW_LIMIT)
+    val query = LocalFind.current.query
+    val hiddenMatch = remember(table, query) {
+        query.isNotBlank() && table.rows.drop(ROW_LIMIT).any { row ->
+            row.cells.any { cell -> cell.blocks.any { matchOffsets(blockText(it), query).isNotEmpty() } }
+        }
+    }
+    val showAll = expanded || hiddenMatch
+    val rows = if (showAll || table.rows.size <= ROW_LIMIT) table.rows else table.rows.take(ROW_LIMIT)
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val shape = RoundedCornerShape(10.dp)
 
@@ -480,7 +489,7 @@ private fun TableView(table: TableBlock, onLink: OnLink, nested: Boolean) {
                 }
             }
         }
-        if (!expanded && table.rows.size > ROW_LIMIT) {
+        if (!showAll && table.rows.size > ROW_LIMIT) {
             TextButton(onClick = { expanded = true }) { Text("Show all ${table.rows.size} rows") }
         }
     }
@@ -524,7 +533,7 @@ private fun InfoboxView(block: InfoboxBlock, onLink: OnLink) {
     ) {
         block.title?.let {
             Text(
-                text = it,
+                text = highlighted(it),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = colors.onPrimaryContainer,
