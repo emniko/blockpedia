@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,6 +71,28 @@ import com.emniko.blockpedia.ask.AskSettings
 import com.emniko.blockpedia.ask.ChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Switch
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 
 class AskViewModel : ViewModel() {
     val settings = Graph.askSettings
@@ -85,14 +106,27 @@ class AskViewModel : ViewModel() {
         if (q.isEmpty() || busy.value != null) return
         val history = messages.value
         messages.value = history + ChatMessage(true, q)
-        busy.value = "Searching the wiki…"
+        run(history, q)
+    }
+
+    /** Asks the last question again after an error. */
+    fun retry() {
+        val list = messages.value
+        if (busy.value != null || list.size < 2 || !list.last().error) return
+        val question = list[list.size - 2]
+        messages.value = list.dropLast(1)
+        run(list.dropLast(2), question.text)
+    }
+
+    private fun run(history: List<ChatMessage>, q: String) {
+        busy.value = AskEngine.Stage.Wiki.label
         viewModelScope.launch {
             val reply = try {
-                engine.answer(settings.config.value, history, q)
+                engine.answer(settings.config.value, history, q) { busy.value = it.label }
             } catch (e: AskException) {
-                ChatMessage(false, "⚠ " + (e.message ?: "Something went wrong."))
+                ChatMessage(false, e.message ?: "Something went wrong.", error = true)
             } catch (e: Exception) {
-                ChatMessage(false, "⚠ Something went wrong: ${e.message ?: e.javaClass.simpleName}")
+                ChatMessage(false, "Something went wrong: ${e.message ?: e.javaClass.simpleName}", error = true)
             }
             messages.value = messages.value + reply
             busy.value = null
@@ -155,19 +189,23 @@ fun AskScreen(initialQuestion: String?, onBack: () -> Unit, onOpenArticle: (Stri
                         if (!config.ready) {
                             SetupCard(onOpenSettings = { showSettings = true })
                         } else {
-                            Intro { vm.ask(it) }
+                            EmptyState(web = config.web && config.provider.webSearch)
                         }
                     }
                 }
-                items(messages) { m -> Bubble(m, onOpenArticle) }
-                if (busy != null) {
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text(busy ?: "", style = MaterialTheme.typography.bodyMedium)
-                        }
+                itemsIndexed(messages) { i, m ->
+                    if (m.fromUser) {
+                        UserBubble(m.text)
+                    } else {
+                        AnswerView(
+                            m,
+                            isLast = i == messages.lastIndex,
+                            onOpenArticle = onOpenArticle,
+                            onRetry = vm::retry,
+                        )
                     }
                 }
+                if (busy != null) item { Thinking(busy ?: "") }
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -203,57 +241,164 @@ fun AskScreen(initialQuestion: String?, onBack: () -> Unit, onOpenArticle: (Stri
 }
 
 @Composable
-private fun Bubble(m: ChatMessage, onOpenArticle: (String) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (m.fromUser) Alignment.CenterEnd else Alignment.CenterStart) {
-        Column(
-            Modifier
-                .widthIn(max = 340.dp)
-                .background(
-                    if (m.fromUser) colors.primaryContainer else colors.surfaceContainerHigh,
-                    RoundedCornerShape(16.dp),
-                )
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+private fun UserBubble(text: String) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
+}
+
+@Composable
+private fun AssistantHeader() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            Modifier.size(26.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(cleanMarkdown(m.text), style = MaterialTheme.typography.bodyLarge)
-            if (m.sources.isNotEmpty()) {
-                Text("Sources", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-                SourceChips(m.sources, onOpenArticle)
-            }
+            Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
         }
+        Text("Blockpedia AI", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SourceChips(sources: List<String>, onOpenArticle: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        sources.forEachIndexed { i, title ->
-            AssistChip(onClick = { onOpenArticle(title) }, label = { Text("[${i + 1}] $title") })
+private fun AnswerView(m: ChatMessage, isLast: Boolean, onOpenArticle: (String) -> Unit, onRetry: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        AssistantHeader()
+        if (m.error) {
+            Column(
+                Modifier.fillMaxWidth().background(colors.errorContainer, RoundedCornerShape(16.dp)).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(m.text, color = colors.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
+                if (isLast) OutlinedButton(onClick = onRetry) { Text("Try again") }
+            }
+            return@Column
+        }
+        MarkdownText(m.text, onCitation = { n -> m.sources.getOrNull(n - 1)?.let(onOpenArticle) })
+
+        if (m.sources.isNotEmpty() || m.web.isNotEmpty()) {
+            Text("Sources", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                m.sources.forEachIndexed { i, title ->
+                    SourceRow(
+                        badge = "${i + 1}",
+                        title = title,
+                        subtitle = "Minecraft Wiki",
+                        icon = Icons.AutoMirrored.Outlined.MenuBook,
+                        onClick = { onOpenArticle(title) },
+                    )
+                }
+                m.web.forEach { w ->
+                    SourceRow(
+                        badge = null,
+                        title = w.title,
+                        subtitle = runCatching { java.net.URI(w.url).host.removePrefix("www.") }.getOrDefault(w.url),
+                        icon = Icons.Outlined.Language,
+                        onClick = { openWeb(context, w.url) },
+                    )
+                }
+            }
+        }
+        if (m.searches.isNotEmpty()) {
+            // Gemini's grounding terms ask apps to show the Google searches it ran.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                m.searches.forEach { q ->
+                    AssistChip(
+                        onClick = { openWeb(context, "https://www.google.com/search?q=" + Uri.encode(q)) },
+                        label = { Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    )
+                }
+            }
+        }
+        Row {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(m.text))
+                Toast.makeText(context, "Answer copied", Toast.LENGTH_SHORT).show()
+            }) {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Copy")
+            }
         }
     }
 }
 
-/** Models often answer in Markdown; show it as plain text with bullets. */
-private fun cleanMarkdown(text: String): String = text
-    .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
-    .replace(Regex("(?m)^#{1,6}\\s*"), "")
-    .replace(Regex("(?m)^\\s*[-*]\\s+"), "• ")
-    .replace(Regex("`([^`]*)`"), "$1")
+@Composable
+private fun SourceRow(badge: String?, title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.surfaceContainerHigh, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (badge != null) {
+            Box(Modifier.size(22.dp).background(colors.primary, CircleShape), contentAlignment = Alignment.Center) {
+                Text(badge, style = MaterialTheme.typography.labelSmall, color = colors.onPrimary, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(22.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
+        }
+    }
+}
 
 @Composable
-private fun Intro(onAsk: (String) -> Unit) {
+private fun Thinking(label: String) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistantHeader()
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(web: Boolean) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+        Text("Ask anything about Minecraft", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
-            "Ask anything about Minecraft. Answers come from Minecraft Wiki pages, linked under each answer.",
-            style = MaterialTheme.typography.bodyLarge,
+            if (web) "Answers use the Minecraft Wiki and the web, with sources." else "Answers use the Minecraft Wiki, with sources.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        listOf(
-            "What's the best Y level for diamonds?",
-            "How do I cure a zombie villager?",
-            "What does Mending do?",
-        ).forEach { q -> OutlinedButton(onClick = { onAsk(q) }) { Text(q) } }
+    }
+}
+
+/** Opens a web page in a Custom Tab, or any browser. */
+private fun openWeb(context: Context, url: String) {
+    val uri = Uri.parse(url)
+    try {
+        CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, uri)
+    } catch (_: ActivityNotFoundException) {
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 }
 
@@ -302,6 +447,21 @@ private fun SettingsDialog(vm: AskViewModel, onDismiss: () -> Unit) {
                     }
                 }
                 Text(config.provider.note, style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Search the web", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            if (config.provider.webSearch) "Use the web as well as the Minecraft Wiki" else "Not free with this service",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = config.web && config.provider.webSearch,
+                        enabled = config.provider.webSearch,
+                        onCheckedChange = { vm.settings.setWeb(it) },
+                    )
+                }
                 TextButton(onClick = { runCatching { uriHandler.openUri(config.provider.keyPage) } }) {
                     Text("Get a free ${config.provider.label} key")
                 }
@@ -348,7 +508,8 @@ private fun SettingsDialog(vm: AskViewModel, onDismiss: () -> Unit) {
                 }
                 status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 Text(
-                    "The key is stored only on this phone. Questions and wiki excerpts are sent to ${config.provider.label}.",
+                    "The key is stored only on this phone. Questions and wiki excerpts are sent to ${config.provider.label}" +
+                        (if (config.provider.webSearch) ", which may search the web with them." else "."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
