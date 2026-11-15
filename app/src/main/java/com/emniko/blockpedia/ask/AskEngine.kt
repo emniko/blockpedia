@@ -83,7 +83,7 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         val wikiTitles = excerpts.map { it.first }
 
         onStage(if (web) Stage.Web else Stage.Writing)
-        return when {
+        val reply = when {
             web && config.provider == AiProvider.Gemini -> geminiGrounded(config, system, turns, user, wikiTitles)
             web && config.provider == AiProvider.Groq -> groqBrowser(config, system, turns, user, wikiTitles)
             else -> {
@@ -93,7 +93,15 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
                 ChatMessage(false, chat(config, messages, maxTokens = 3000).trim(), wikiTitles)
             }
         }
+        return reply.copy(text = tidyCitations(reply.text))
     }
+
+    /** Models sometimes cite as 【3】 or add the browser tool's 【2†L6-L10】 markers: keep [3], drop the rest. */
+    private fun tidyCitations(text: String): String = text
+        .replace(Regex("【(\\d{1,2})】"), "[$1]")
+        .replace(Regex("【[^】]*】"), "")
+        .replace(Regex(" +([.,;:])"), "$1")
+        .trim()
 
     /**
      * Groq's built-in browser search, available with the gpt-oss models. Sources are read from the
@@ -113,7 +121,8 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         val json = try {
             complete(config.copy(model = model), messages, maxTokens = 4000) {
                 put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
-                put("tool_choice", "required")
+                // Let the model decide: "required" fails when it answers from the wiki excerpts alone.
+                put("tool_choice", "auto")
             }
         } catch (e: AskException) {
             // Web search unavailable (plan, model or service change): answer from the wiki instead.
@@ -125,7 +134,6 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         }
         val message = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
         val text = message?.optString("content").orEmpty()
-            .replace(Regex("【[^】]*】"), "") // the browser tool's inline page markers
             .trim()
         if (text.isBlank()) throw AskException("Groq returned an empty answer.")
         val web = LinkedHashMap<String, WebSource>()
@@ -235,7 +243,8 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         }
         flush()
 
-        val words = question.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length > 2 && it !in STOP_WORDS }.toSet()
+        // "y" is kept for Y-level questions: generation sections mention "Y -59" and the like.
+        val words = question.lowercase().split(Regex("[^a-z0-9]+")).filter { (it.length > 2 || it == "y") && it !in STOP_WORDS }.toSet()
         fun score(s: Section): Int = words.count { w -> s.heading.lowercase().contains(w) } * 5 +
             words.sumOf { w -> Regex("\\b" + Regex.escape(w)).findAll(s.text.lowercase()).count().coerceAtMost(5) }
 
@@ -356,7 +365,7 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
     }
 
     private companion object {
-        const val PAGE_BUDGET = 3500
+        const val PAGE_BUDGET = 5000
 
         val STOP_WORDS = setOf(
             "the", "and", "for", "how", "what", "where", "when", "which", "who", "why", "can", "does", "you",
