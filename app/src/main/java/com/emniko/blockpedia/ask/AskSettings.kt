@@ -24,7 +24,7 @@ enum class AiProvider(
         "openai/gpt-oss-120b",
         "https://console.groq.com/keys",
         "Free plan, no card needed: about 1,000 requests a day per model (each question uses two). Web " +
-            "answers use Groq's compound models, which allow fewer requests a day.",
+            "answers use Groq's browser search with the gpt-oss models.",
         webSearch = true,
     ),
     Gemini(

@@ -42,7 +42,7 @@ class AskException(message: String) : Exception(message)
  * Answers Minecraft questions: the model first turns the question into wiki searches, the app
  * fetches the best Minecraft Wiki pages and keeps the sections that fit the question, then the
  * model answers from those excerpts, citing them as [1], [2]... With web search on, the answer
- * step can also search the web (Groq's compound models, or Google Search grounding on Gemini).
+ * step can also search the web (Groq's browser search with gpt-oss, or Google Search grounding on Gemini).
  */
 class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
 
@@ -85,7 +85,7 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         onStage(if (web) Stage.Web else Stage.Writing)
         return when {
             web && config.provider == AiProvider.Gemini -> geminiGrounded(config, system, turns, user, wikiTitles)
-            web && config.provider == AiProvider.Groq -> groqCompound(config, system, turns, user, wikiTitles)
+            web && config.provider == AiProvider.Groq -> groqBrowser(config, system, turns, user, wikiTitles)
             else -> {
                 val messages = JSONArray().put(msg("system", system))
                 turns.forEach { messages.put(msg(if (it.fromUser) "user" else "assistant", it.text)) }
@@ -95,8 +95,11 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         }
     }
 
-    /** Groq's compound systems search the web on their own; sources come back as executed tools. */
-    private suspend fun groqCompound(
+    /**
+     * Groq's built-in browser search, available with the gpt-oss models. Sources are read from the
+     * tool's own results (executed_tools), not from links the model writes.
+     */
+    private suspend fun groqBrowser(
         config: AskSettings.Config,
         system: String,
         turns: List<ChatMessage>,
@@ -106,29 +109,40 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
         val messages = JSONArray().put(msg("system", system))
         turns.forEach { messages.put(msg(if (it.fromUser) "user" else "assistant", it.text)) }
         messages.put(msg("user", user))
-        var lastError: AskException? = null
-        for (model in listOf("groq/compound", "groq/compound-mini")) {
-            try {
-                val json = complete(config.copy(model = model), messages, maxTokens = 3000)
-                val message = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
-                val text = message?.optString("content").orEmpty()
-                if (text.isBlank()) continue
-                val web = LinkedHashMap<String, WebSource>()
-                val tools = message?.optJSONArray("executed_tools") ?: JSONArray()
-                for (i in 0 until tools.length()) {
-                    val results = tools.optJSONObject(i)?.optJSONObject("search_results")?.optJSONArray("results") ?: continue
-                    for (j in 0 until results.length()) {
-                        val r = results.optJSONObject(j) ?: continue
-                        val url = r.optString("url")
-                        if (url.startsWith("http")) web.getOrPut(url) { WebSource(r.optString("title").ifBlank { host(url) }, url) }
-                    }
-                }
-                return ChatMessage(false, text.trim(), wikiTitles, web.values.take(6))
-            } catch (e: AskException) {
-                lastError = e
+        val model = config.model.takeIf { it.startsWith("openai/gpt-oss") } ?: "openai/gpt-oss-120b"
+        val json = try {
+            complete(config.copy(model = model), messages, maxTokens = 4000) {
+                put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
+                put("tool_choice", "required")
+            }
+        } catch (e: AskException) {
+            // Web search unavailable (plan, model or service change): answer from the wiki instead.
+            val plain = JSONArray().put(msg("system", ANSWER_PROMPT))
+            turns.forEach { plain.put(msg(if (it.fromUser) "user" else "assistant", it.text)) }
+            plain.put(msg("user", user))
+            val text = chat(config, plain, maxTokens = 3000).trim()
+            return ChatMessage(false, "$text\n\n*Web search wasn't available (${e.message}), so this answer uses the Minecraft Wiki only.*", wikiTitles)
+        }
+        val message = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
+        val text = message?.optString("content").orEmpty()
+            .replace(Regex("【[^】]*】"), "") // the browser tool's inline page markers
+            .trim()
+        if (text.isBlank()) throw AskException("Groq returned an empty answer.")
+        val web = LinkedHashMap<String, WebSource>()
+        message?.optJSONArray("executed_tools")?.let { collectLinks(it, web) }
+        return ChatMessage(false, text, wikiTitles, web.values.take(6))
+    }
+
+    /** Every {url, title} object anywhere in the tool output, in order. */
+    private fun collectLinks(node: Any?, into: MutableMap<String, WebSource>) {
+        when (node) {
+            is JSONArray -> for (i in 0 until node.length()) collectLinks(node.opt(i), into)
+            is JSONObject -> {
+                val url = node.optString("url")
+                if (url.startsWith("http")) into.getOrPut(url) { WebSource(node.optString("title").ifBlank { host(url) }, url) }
+                for (key in node.keys()) collectLinks(node.opt(key), into)
             }
         }
-        throw lastError ?: AskException("Groq returned an empty answer.")
     }
 
     /** Gemini with Google Search grounding, through Gemini's own API (the OpenAI one has no search). */
@@ -268,7 +282,12 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
     }
 
     /** One OpenAI-style chat completion; returns the whole response. */
-    private suspend fun complete(config: AskSettings.Config, messages: JSONArray, maxTokens: Int): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun complete(
+        config: AskSettings.Config,
+        messages: JSONArray,
+        maxTokens: Int,
+        extra: JSONObject.() -> Unit = {},
+    ): JSONObject = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("model", config.model)
             .put("messages", messages)
@@ -282,6 +301,7 @@ class AskEngine(baseHttp: OkHttpClient, private val repo: WikiRepository) {
                     AiProvider.OpenRouter -> false
                 }
                 if (thinking) put("reasoning_effort", "low")
+                extra()
             }
             .toString()
             .toRequestBody("application/json".toMediaType())
