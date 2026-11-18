@@ -7,11 +7,11 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -43,6 +43,7 @@ import com.emniko.blockpedia.ui.seed.LibrarianScreen
 import com.emniko.blockpedia.ui.seed.SlimeScreen
 import com.emniko.blockpedia.ui.server.ServerScreen
 import com.emniko.blockpedia.ui.ask.AskScreen
+import com.emniko.blockpedia.ui.anvil.AnvilScreen
 
 object Routes {
     const val HOME = "home"
@@ -54,7 +55,9 @@ object Routes {
     const val ABOUT = "about"
     const val ARTICLE = "article/{title}?frag={frag}"
     const val CATEGORY = "category/{name}"
+    /** The Tools tab (seed tools and enchanting). The route name predates the rename. */
     const val SEEDS = "seeds"
+    const val ANVIL = "anvil"
     const val SEED_MAP = "seedmap?x={x}&z={z}&dim={dim}"
     const val NEAREST = "nearest"
     const val SLIME = "slime"
@@ -81,7 +84,7 @@ private data class TopTab(val route: String, val label: String, val selected: Im
 private val TopTabs = listOf(
     TopTab(Routes.HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
     TopTab(Routes.SEARCH, "Search", Icons.Filled.Search, Icons.Outlined.Search),
-    TopTab(Routes.SEEDS, "Seeds", Icons.Filled.Map, Icons.Outlined.Map),
+    TopTab(Routes.SEEDS, "Tools", Icons.Filled.Handyman, Icons.Outlined.Handyman),
     TopTab(Routes.SERVER, "Server", Icons.Filled.Dns, Icons.Outlined.Dns),
     TopTab(Routes.SAVED, "Saved", Icons.Filled.Bookmarks, Icons.Outlined.Bookmarks),
 )
@@ -158,6 +161,7 @@ fun BlockpediaRoot() {
                     onOpenNearest = { nav.navigate(Routes.NEAREST) },
                     onOpenSlime = { nav.navigate(Routes.SLIME) },
                     onOpenLibrarian = { nav.navigate(Routes.LIBRARIAN) },
+                    onOpenAnvil = { nav.navigate(Routes.ANVIL) },
                 )
             }
             composable(
@@ -197,6 +201,9 @@ fun BlockpediaRoot() {
             }
             composable(Routes.LIBRARIAN) {
                 LibrarianScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.ANVIL) {
+                AnvilScreen(onBack = { nav.popBackStack() }, onOpenArticle = openArticle)
             }
             composable(Routes.SLIME) {
                 SlimeScreen(onBack = { nav.popBackStack() })

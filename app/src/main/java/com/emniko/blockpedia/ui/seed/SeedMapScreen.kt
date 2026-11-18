@@ -1171,7 +1171,7 @@ fun MissingWorld(onBack: () -> Unit) {
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Enter your world's seed on the Seeds tab first.", style = MaterialTheme.typography.bodyLarge)
+            Text("Enter your world's seed on the Tools tab first.", style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.size(16.dp))
             TextButton(onClick = onBack) { Text("Go back") }
         }

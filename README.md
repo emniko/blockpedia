@@ -14,13 +14,17 @@ Kotlin + Jetpack Compose. No WebView anywhere: wiki pages are parsed into native
 - **Search** with live results and snippets; **category browser** with infinite scroll; **random page**.
 - **Table of contents** sheet, section links that scroll in place, bookmarks, reading history.
 - **Offline**: every opened page is saved; if the network fails you get the saved copy.
-- **Seed tools** (Seeds tab), Java and Bedrock, computed on the phone and offline:
+- **Seed tools** (Tools tab), Java and Bedrock, computed on the phone and offline:
   - **Seed map**: zoomable biome map with villages, temples, outposts, monuments, mansions, ancient cities,
     trail ruins, trial chambers, ruined portals, shipwrecks, ocean ruins, buried treasure, plus strongholds (Java)
     and a slime chunk overlay. Tap anything for coordinates, biome and Nether coordinates.
   - **Nearest structures**: the 10 closest of any type from your coordinates, with distance and direction.
   - **Slime chunks**: grid around you plus the nearest slime chunks.
   - **World spawn** (Java).
+- **Enchanting tools** (Tools tab):
+  - **Anvil order**: pick the item and the books you have (and any enchantments already on it) and get the
+    cheapest order to combine them, step by step, never hitting "Too Expensive!". Exact search, Java costs.
+  - **Librarian trades**: predicts enchanted book offers from the seed (Java 26.1+).
 
 ### Seed tools: accuracy
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.Construction
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,6 +67,7 @@ fun SeedsScreen(
     onOpenNearest: () -> Unit,
     onOpenSlime: () -> Unit,
     onOpenLibrarian: () -> Unit,
+    onOpenAnvil: () -> Unit,
 ) {
     val store = Graph.seedStore
     val input by store.input.collectAsStateWithLifecycle()
@@ -73,7 +76,7 @@ fun SeedsScreen(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { TopAppBar(title = { Text("Seed tools", fontWeight = FontWeight.Bold) }) },
+        topBar = { TopAppBar(title = { Text("Tools", fontWeight = FontWeight.Bold) }) },
     ) { padding ->
         Column(
             Modifier
@@ -83,6 +86,7 @@ fun SeedsScreen(
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            GroupLabel("Seed tools")
             WorldCard(
                 input = input,
                 error = config.exceptionOrNull()?.message,
@@ -112,22 +116,31 @@ fun SeedsScreen(
                 enabled = ready != null || input.edition == Edition.Bedrock,
                 onClick = onOpenSlime,
             )
-            ToolCard(
-                icon = Icons.Outlined.AutoStories,
-                title = "Librarian trades",
-                subtitle = "Predict enchanted books from the seed (Java 26.1+)",
-                enabled = ready != null && ready.edition == Edition.Java,
-                onClick = onOpenLibrarian,
-            )
-
             Text(
                 text = "Worlds are calculated on your phone with cubiomes (MIT licence). Java results match the game. " +
                     "Bedrock biomes match the game; Bedrock structure positions follow community-documented rules and " +
                     "a few may differ.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
+                modifier = Modifier.padding(top = 4.dp),
             )
+
+            GroupLabel("Enchanting")
+            ToolCard(
+                icon = Icons.Outlined.Construction,
+                title = "Anvil order",
+                subtitle = "Cheapest order to combine your books, no \"Too Expensive!\"",
+                enabled = true,
+                onClick = onOpenAnvil,
+            )
+            ToolCard(
+                icon = Icons.Outlined.AutoStories,
+                title = "Librarian trades",
+                subtitle = "Predict enchanted books from the seed above (Java 26.1+)",
+                enabled = ready != null && ready.edition == Edition.Java,
+                onClick = onOpenLibrarian,
+            )
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -244,6 +257,17 @@ private sealed interface SpawnState {
     data object Loading : SpawnState
     data object Unavailable : SpawnState
     data class Ready(val pos: Pos) : SpawnState
+}
+
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+    )
 }
 
 @Composable

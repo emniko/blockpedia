@@ -99,7 +99,7 @@ fun LibrarianScreen(onBack: () -> Unit) {
             Column(Modifier.padding(padding).padding(16.dp)) {
                 Text(
                     "Villager trades only follow the world seed in Java Edition 26.1 and newer. " +
-                        "Set your world to Java 26.1, 26.2 or 26.3 on the Seeds tab to predict them.",
+                        "Set your world to Java 26.1, 26.2 or 26.3 on the Tools tab to predict them.",
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
