@@ -98,6 +98,20 @@ fun AboutScreen(onBack: () -> Unit) {
                 Text("cubiomes on GitHub")
             }
 
+            Text("Enchanting table predictor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "The XP seed and player seed cracking and the enchanting table maths are ported from " +
+                    "Enchantment Cracker, Copyright (c) 2019 Joseph Burton (Earthcomputer), MIT licence. " +
+                    "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and " +
+                    "associated documentation files, to deal in the Software without restriction, subject to including " +
+                    "the copyright notice and permission notice in all copies or substantial portions of the Software. " +
+                    "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = { runCatching { uriHandler.openUri("https://github.com/Earthcomputer/EnchantmentCracker/blob/master/LICENSE.txt") } }) {
+                Text("Enchantment Cracker licence")
+            }
+
             Text("Disclaimer", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
                 "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. " +

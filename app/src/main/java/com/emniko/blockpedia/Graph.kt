@@ -3,6 +3,7 @@ package com.emniko.blockpedia
 import android.content.Context
 import com.emniko.blockpedia.ask.AskSettings
 import com.emniko.blockpedia.data.PageCache
+import com.emniko.blockpedia.enchant.EnchantSession
 import com.emniko.blockpedia.data.UserStore
 import com.emniko.blockpedia.data.WikiApi
 import com.emniko.blockpedia.data.WikiRepository
@@ -33,6 +34,8 @@ object Graph {
         private set
     lateinit var askSettings: AskSettings
         private set
+    lateinit var enchanting: EnchantSession
+        private set
 
     fun init(context: Context) {
         if (::http.isInitialized) return
@@ -51,5 +54,6 @@ object Graph {
         seedStore = SeedStore(app)
         updater = AppUpdater(app, http)
         askSettings = AskSettings(app)
+        enchanting = EnchantSession(app)
     }
 }

@@ -22,6 +22,10 @@ Kotlin + Jetpack Compose. No WebView anywhere: wiki pages are parsed into native
   - **Slime chunks**: grid around you plus the nearest slime chunks.
   - **World spawn** (Java).
 - **Enchanting tools** (Tools tab):
+  - **Enchanting table**: finds your XP seed from a few readings of the table's level costs (all 4.3 billion
+    seeds checked on the phone in C), shows exactly what every slot gives for any item and bookshelf count, and
+    with your player seed tells you how many items to throw to get the enchantments you want. Ported from
+    [Enchantment Cracker](https://github.com/Earthcomputer/EnchantmentCracker) (MIT). Java 1.16+.
   - **Anvil order**: pick the item and the books you have (and any enchantments already on it) and get the
     cheapest order to combine them, step by step, never hitting "Too Expensive!". Exact search, Java costs.
   - **Librarian trades**: predicts enchanted book offers from the seed (Java 26.1+).

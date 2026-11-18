@@ -44,6 +44,7 @@ import com.emniko.blockpedia.ui.seed.SlimeScreen
 import com.emniko.blockpedia.ui.server.ServerScreen
 import com.emniko.blockpedia.ui.ask.AskScreen
 import com.emniko.blockpedia.ui.anvil.AnvilScreen
+import com.emniko.blockpedia.ui.enchant.EnchantScreen
 
 object Routes {
     const val HOME = "home"
@@ -58,6 +59,7 @@ object Routes {
     /** The Tools tab (seed tools and enchanting). The route name predates the rename. */
     const val SEEDS = "seeds"
     const val ANVIL = "anvil"
+    const val ENCHANTING = "enchanting"
     const val SEED_MAP = "seedmap?x={x}&z={z}&dim={dim}"
     const val NEAREST = "nearest"
     const val SLIME = "slime"
@@ -162,6 +164,7 @@ fun BlockpediaRoot() {
                     onOpenSlime = { nav.navigate(Routes.SLIME) },
                     onOpenLibrarian = { nav.navigate(Routes.LIBRARIAN) },
                     onOpenAnvil = { nav.navigate(Routes.ANVIL) },
+                    onOpenEnchanting = { nav.navigate(Routes.ENCHANTING) },
                 )
             }
             composable(
@@ -204,6 +207,9 @@ fun BlockpediaRoot() {
             }
             composable(Routes.ANVIL) {
                 AnvilScreen(onBack = { nav.popBackStack() }, onOpenArticle = openArticle)
+            }
+            composable(Routes.ENCHANTING) {
+                EnchantScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SLIME) {
                 SlimeScreen(onBack = { nav.popBackStack() })

@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Construction
 import androidx.compose.material.icons.outlined.Map
@@ -68,6 +69,7 @@ fun SeedsScreen(
     onOpenSlime: () -> Unit,
     onOpenLibrarian: () -> Unit,
     onOpenAnvil: () -> Unit,
+    onOpenEnchanting: () -> Unit,
 ) {
     val store = Graph.seedStore
     val input by store.input.collectAsStateWithLifecycle()
@@ -126,6 +128,13 @@ fun SeedsScreen(
             )
 
             GroupLabel("Enchanting")
+            ToolCard(
+                icon = Icons.Outlined.AutoAwesome,
+                title = "Enchanting table",
+                subtitle = "Predict the table's offers and steer it to the enchantments you want (Java)",
+                enabled = true,
+                onClick = onOpenEnchanting,
+            )
             ToolCard(
                 icon = Icons.Outlined.Construction,
                 title = "Anvil order",

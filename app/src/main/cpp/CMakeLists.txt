@@ -16,6 +16,7 @@ add_library(seedmap SHARED
     seedmap_world.c
     seedmap_features.c
     seedmap_jni.c
+    enchant_crack.c
     ${CUBIOMES_SOURCES}
     ${LOOT_SOURCES}
 )

@@ -1,0 +1,8 @@
+265141752863181 diamond_sword sharpness:4,looting:3 15 32 -> 202 14 2 28
+21783070108526 diamond_pickaxe efficiency:4,unbreaking:3 15 39 -> 0 14 2 28
+45181810730769 diamond_pickaxe fortune:3 15 31 -> 10 13 2 26
+11736648380133 diamond_chestplate protection:4,unbreaking:3 15 35 -> 3 14 2 28
+210876223053237 bow power:4,infinity:1 15 34 -> 1 15 2 30
+60756188470170 book sharpness:5 15 46 -> none
+169331749721667 netherite_boots feather_falling:4,depth_strider:3 15 44 -> none
+231185477084511 trident loyalty:3,impaling:4 15 42 -> 5 12 2 24
